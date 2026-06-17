@@ -34,7 +34,7 @@ for repo in omnibioai-tes omnibioai-lims omnibioai-sdk omnibioai-rag \
             omnibioai-control-center omnibioai-dev-hub omnibioai-iam-client \
             omnibioai-security-sdk omnibioai-policy-engine omnibioai-security-audit \
             omnibioai-hpc-policy-engine omnibioai-videos omnibioai-auth \
-            omnibioai-api-gateway omnibioai-launcher omnibioai-studio; do
+            omnibioai-api-gateway omnibioai-launcher; do
   path=$MACHINE/$repo
   [ ! -d "$path" ] && continue
   echo "Running $repo..."
