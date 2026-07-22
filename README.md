@@ -165,7 +165,7 @@ gh auth login
 
 | Time | Script | Purpose |
 |------|--------|---------|
-| 2AM daily | `run_coverage_host.py` | Test coverage |
+| 2AM daily | [`run_coverage_host.py`](../omnibioai-control-center/scripts/run_coverage_host.py) | Test coverage |
 | 3AM daily | `sync_pubmed_updates.py` | PubMed sync |
-| 4AM daily | `backup-mysql.sh` | Database backup |
-| Hourly | `check_and_reindex.sh` | Re-index check |
+| 4AM daily | [`backup-mysql.sh`](../omnibioai-studio/scripts/backup-mysql.sh) | Database backup |
+| Hourly | [`check_and_reindex.sh`](../omnibioai-dev-hub/scripts/check_and_reindex.sh) | Re-index check |
