@@ -77,6 +77,9 @@ Developer utilities, automation scripts, and ecosystem management tools for the 
 | `verify_migration.sh` | Compares packages and tags between the `man4ish` and `omnibioai` GHCR namespaces and writes a migration verification report |
 | `delete_old_packages.sh` | Deletes packages listed in `old_packages.txt` (produced by `verify_migration.sh`) from the `man4ish` namespace; dry-run by default, requires typed `DELETE` confirmation |
 | `delete_packages_browser.py` | Playwright browser automation fallback for bulk package deletion, for use when the API token lacks `delete:packages` scope |
+| `check_base_images.sh` | Compares the ~12 shared `omnibioai-base`/`omnibioai-ml-*` base images against ghcr.io/omnibioai directly (no pagination needed); flags any local build newer than the registry's last push |
+| `check_platform_workflows.sh` | Checks GitHub Actions run health (not local push state) for the ~20 platform/system repos whose CI workflow builds+pushes their Docker image; distinguishes disabled/stale/failing/OK |
+| `check_plugin_image_sync.sh` | Paginated, rate-limit-aware read-only gap check between locally-built `omnibioai-plugin-*` images and their ghcr.io/omnibioai packages; no local push log exists for plugins, so this rebuilds the comparison each run and logs clearly if a sweep is cut short by rate limiting |
 
 ### Testing & Evaluation
 
@@ -169,3 +172,6 @@ gh auth login
 | 3AM daily | `sync_pubmed_updates.py` | PubMed sync |
 | 4AM daily | [`backup-mysql.sh`](../omnibioai-studio/scripts/backup-mysql.sh) | Database backup |
 | Hourly | [`check_and_reindex.sh`](../omnibioai-dev-hub/scripts/check_and_reindex.sh) | Re-index check |
+| 8AM daily | `check_base_images.sh` | Base image freshness vs. ghcr.io/omnibioai |
+| 8:15AM daily | `check_platform_workflows.sh` | Platform-image CI/CD workflow health |
+| 8:30AM daily | `check_plugin_image_sync.sh` | Plugin image vs. registry gap sweep |
