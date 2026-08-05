@@ -7,7 +7,7 @@ set -euo pipefail
 
 PARENT="/home/manish/Desktop/machine/omnibioai-data/PubMed/Abstracts"
 CHUNK_PREFIX="_general_corpus_chunk"
-MAX_CONCURRENT=2   # tune based on observed RSS per chunk; start conservative
+MAX_CONCURRENT=1   # tune based on observed RSS per chunk; start conservative
 EMBED_MODEL="pubmedbert"
 
 cd "$PARENT"
