@@ -31,6 +31,8 @@ Developer utilities, automation scripts, and ecosystem management tools for the 
 | Script | Description |
 |--------|-------------|
 | `ecosystem_status.sh` | Reports git branch and clean/dirty status across all 32 repos |
+| `check_unpushed_work.sh` | Focused specifically on "is anything at risk of being lost" — non-zero exit if any repo has unpushed *commits* (untracked/modified files alone don't fail it; unpushed commits are the real risk). Supports `--root`, `--json`, `--quiet` |
+| `backup-system-state.sh` | Daily backup of machine state that isn't in git — `.env` files, cloudflared config, systemd units, crontab — deliberately excludes `.ssh/`, `.aws/`, `.kube/`, `.gnupg/`, and other high-blast-radius credential paths |
 | `clock_count.sh` | Counts lines of code across the full ecosystem using `cloc` |
 | `run_coverage.sh` | Aggregates pytest coverage reports across all repos into `out/coverage/` |
 | `disable_cicd.sh` | Moves `.github/workflows` to `workflows_disabled` across all repos |
