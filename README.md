@@ -10,7 +10,7 @@ Developer utilities, automation scripts, and ecosystem management tools for the 
 
 | Script | Description |
 |--------|-------------|
-| `omnibioai-up.sh` | Starts the full OmniBioAI stack in a tmux session |
+| `omnibioai-up.sh` | Starts the core OmniBioAI development services in a tmux session (core, TES, ToolServer, and LIMS) |
 | `omnibioai-down.sh` | Tears down the tmux session and stops all services |
 | `start_all.sh` | Starts all OmniBioAI services sequentially |
 | `start_stack_tmux.sh` | Launches the full stack in named tmux windows with port management |
@@ -22,7 +22,7 @@ Developer utilities, automation scripts, and ecosystem management tools for the 
 
 | Script | Description |
 |--------|-------------|
-| `build-all-new.sh` | Builds and pushes all service images to GHCR (`ghcr.io/man4ish`) |
+| `build-all-new.sh` | Builds the listed service images locally using each repo's `Dockerfile.new`; it does not push them |
 | `build_all_tools.sh` | Builds all bioinformatics tool images and pushes to ECR and GHCR |
 | `build_cython.sh` | Compiles all high-priority Cython files across repos before Docker builds |
 
@@ -30,7 +30,7 @@ Developer utilities, automation scripts, and ecosystem management tools for the 
 
 | Script | Description |
 |--------|-------------|
-| `ecosystem_status.sh` | Reports git branch and clean/dirty status across all 32 repos |
+| `ecosystem_status.sh` | Reports git branch and clean/dirty status across all discovered repositories under the machine root |
 | `check_unpushed_work.sh` | Focused specifically on "is anything at risk of being lost" — non-zero exit if any repo has unpushed *commits* (untracked/modified files alone don't fail it; unpushed commits are the real risk). Supports `--root`, `--json`, `--quiet` |
 | `backup-system-state.sh` | Daily backup of machine state that isn't in git — `.env` files, cloudflared config, systemd units, crontab — deliberately excludes `.ssh/`, `.aws/`, `.kube/`, `.gnupg/`, and other high-blast-radius credential paths |
 | `clock_count.sh` | Counts lines of code across the full ecosystem using `cloc` |
@@ -116,6 +116,10 @@ bash smoke_test_stack.sh
 bash build-all-new.sh
 ```
 
+`build-all-new.sh` currently builds and tags images locally; it does not push
+them to GHCR despite the historical name of this usage section. Push images
+only after reviewing the build results and registry target.
+
 ### Run coverage across all repos
 ```bash
 bash run_coverage.sh
@@ -141,16 +145,43 @@ python setup_beta_project.py             # execute
 bash disable_cicd.sh
 ```
 
+`disable_cicd.sh` moves workflow files, commits the changes, and pushes each
+affected repository. Review the target repository list before running it.
+
+### Operations that change external state
+
+The following scripts modify repositories, GitHub metadata, or container
+registries and should be reviewed before execution:
+
+- `update_descriptions.sh` edits GitHub repository descriptions.
+- `update_topics.sh` changes GitHub repository topics.
+- `disable_cicd.sh` commits and pushes workflow changes across repositories.
+- `set_public_visibility.sh` and `set_packages_public.sh` change GHCR package visibility.
+- `migrate_public_images.sh` copies images between registries.
+- `delete_old_packages.sh` and `delete_packages_browser.py` delete packages. Use their dry-run mode first; deletion requires explicit confirmation.
+
+Where supported, use `--dry-run` before applying changes.
+
 ---
 
 ## Requirements
 
 ```bash
-# Shell utilities
-sudo apt-get install tmux cloc
+# Core shell utilities
+sudo apt-get install tmux cloc curl jq lsof
+
+# Container tooling used by selected scripts
+# Docker is required for stack/build scripts; skopeo and oras are needed for
+# registry/image migration scripts.
+docker --version
+# Install skopeo and oras separately when using those scripts.
 
 # Python (for setup_beta_project.py)
 pip install PyGithub requests
+
+# Only needed by browser fallbacks:
+pip install playwright
+python -m playwright install chromium
 
 # GitHub CLI (for update_topics.sh, update_descriptions.sh)
 gh auth login
@@ -160,13 +191,19 @@ gh auth login
 
 ## Related Repositories
 
-- [`omnibioai-ecosystem`](../omnibioai-ecosystem) — Docker Compose stack wired by these scripts
+- [`omnibioai-studio`](../omnibioai-studio) — Docker Compose stack and desktop environment used by these scripts
 - [`omnibioai-control-center`](../omnibioai-control-center) — live health dashboard complementing `smoke_test_stack.sh`
 - [`omnibioai-test-data`](../omnibioai-test-data) — test suite run via these build and stack scripts
 
 ---
 
 ## Scheduled Tasks (Cron)
+
+These are the intended schedules, not an installer. Confirm that each
+referenced repository and script exists on the target machine before adding
+entries to crontab. Most scripts assume the default root
+`~/Desktop/machine`; use their documented arguments or environment variables
+where available when deploying on another host.
 
 | Time | Script | Purpose |
 |------|--------|---------|
