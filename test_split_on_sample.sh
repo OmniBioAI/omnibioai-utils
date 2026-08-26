@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-SRC_REAL="/home/manish/Desktop/machine/omnibioai-data/PubMed/Abstracts/_general_corpus"
+SRC_REAL="${SRC_REAL:-/home/manish/Desktop/machine/omnibioai-data/PubMed/Abstracts/_general_corpus}"
 SAMPLE_SIZE=20
 TEST_ROOT="/tmp/gc_split_test_$$"
 SRC="${TEST_ROOT}/_general_corpus"
@@ -12,7 +12,17 @@ echo "[INFO] Setting up test sandbox at $TEST_ROOT"
 mkdir -p "$SRC"
 
 echo "[INFO] Copying $SAMPLE_SIZE sample files from real corpus (read-only, no move)..."
-mapfile -t sample_files < <(find "$SRC_REAL" -maxdepth 1 -name "*.json" | head -n "$SAMPLE_SIZE")
+if [ -d "$SRC_REAL" ] && find "$SRC_REAL" -maxdepth 1 -name "*.json" -print -quit | grep -q .; then
+  mapfile -t sample_files < <(find "$SRC_REAL" -maxdepth 1 -name "*.json" | head -n "$SAMPLE_SIZE")
+else
+  echo "[INFO] Real corpus not available; creating deterministic sample fixtures..."
+  FIXTURE_SOURCE="${TEST_ROOT}/fixture_source"
+  mkdir -p "$FIXTURE_SOURCE"
+  for i in $(seq 1 "$SAMPLE_SIZE"); do
+    printf '{"pmid":"%s"}\n' "$i" > "$FIXTURE_SOURCE/sample_${i}.json"
+  done
+  mapfile -t sample_files < <(find "$FIXTURE_SOURCE" -maxdepth 1 -name "*.json" | sort)
+fi
 for f in "${sample_files[@]}"; do
   cp "$f" "$SRC/"
 done
