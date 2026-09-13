@@ -217,5 +217,5 @@ def main():
     print(f"Total new: {total_new}")
     print(f"Finished: {datetime.now().isoformat()}")
 
-if __name__ == "__main__":
+if __name__ == "__main__":  # pragma: no cover - script entry point
     main()

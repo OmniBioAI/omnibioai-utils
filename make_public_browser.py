@@ -31,7 +31,7 @@ from pathlib import Path
 
 try:
     from playwright.sync_api import sync_playwright, TimeoutError as PWTimeout
-except ImportError:
+except ImportError:  # pragma: no cover - optional dependency guard
     print("Missing dependency. Run: pip install playwright --break-system-packages")
     print("Then:   python3 -m playwright install chromium")
     sys.exit(1)
@@ -341,5 +341,5 @@ def main():
     print(f"\nRe-run the same command to retry anything that failed — completed packages are skipped via {LOG_FILE}.")
 
 
-if __name__ == "__main__":
+if __name__ == "__main__":  # pragma: no cover - script entry point
     main()

@@ -72,12 +72,12 @@ import requests
 
 try:
     import yaml
-except ImportError:
+except ImportError:  # pragma: no cover - optional dependency guard
     yaml = None
 
 try:
     import numpy as np
-except ImportError:
+except ImportError:  # pragma: no cover - hard runtime dependency guard
     print("ERROR: numpy required. pip install numpy --break-system-packages", file=sys.stderr)
     sys.exit(1)
 
@@ -678,5 +678,5 @@ def main():
         print(f"\nFull results written to {args.out}")
 
 
-if __name__ == "__main__":
+if __name__ == "__main__":  # pragma: no cover - script entry point
     main()

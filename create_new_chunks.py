@@ -129,5 +129,5 @@ def create_chunks_from_updates():
     print(f"2. Build FAISS indexes")
     print(f"3. Upload to HuggingFace")
 
-if __name__ == "__main__":
+if __name__ == "__main__":  # pragma: no cover - script entry point
     create_chunks_from_updates()
