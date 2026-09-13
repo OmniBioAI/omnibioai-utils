@@ -866,7 +866,7 @@ def create_issue(repo, title, body, priority, category, labels, dry_run=False):
     for lbl in all_labels:
         try:
             issue_labels.append(lbl)
-        except Exception:
+        except Exception:  # pragma: no cover - defensive, list.append can't fail here
             pass
 
     data = rate_limited_call(
@@ -1014,5 +1014,5 @@ def main():
         print(f"  https://github.com/users/{OWNER}/projects/")
 
 
-if __name__ == "__main__":
+if __name__ == "__main__":  # pragma: no cover - script entry point
     main()

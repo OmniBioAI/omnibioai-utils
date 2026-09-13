@@ -807,5 +807,5 @@ def main() -> None:
         print(f"\n[DONE] Run completed. Registry saved to {dl.registry_path}")
 
 
-if __name__ == "__main__":
+if __name__ == "__main__":  # pragma: no cover - script entry point
     main()

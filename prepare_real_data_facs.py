@@ -66,7 +66,7 @@ from urllib.error import HTTPError, URLError
 
 try:
     import requests
-except ImportError:
+except ImportError:  # pragma: no cover - optional dependency guard
     print("ERROR: pip install requests --break-system-packages", file=sys.stderr)
     sys.exit(1)
 
@@ -309,5 +309,5 @@ def main():
     )
 
 
-if __name__ == "__main__":
+if __name__ == "__main__":  # pragma: no cover - script entry point
     main()
