@@ -24,13 +24,43 @@ RESET='\033[0m'
 # of where the caller invokes it from.
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
+# Discord alert webhook -- same var + same source file (omnibioai-studio/.env)
+# that omnibioai-studio's docker-compose stack already uses for GPU/known-issue
+# alerts. An empty/missing value disables alerting gracefully, same as there.
+if [ -z "${DISCORD_ALERT_WEBHOOK_URL:-}" ] && [ -f "$ROOT/omnibioai-studio/.env" ]; then
+    DISCORD_ALERT_WEBHOOK_URL="$(grep -m1 '^DISCORD_ALERT_WEBHOOK_URL=' "$ROOT/omnibioai-studio/.env" | cut -d= -f2-)"
+fi
+
 step() {
     echo ""
     echo -e "${BOLD}==> $1${RESET}"
 }
 
+# Fire-and-forget Discord embed, mirroring control_center's notify(): title,
+# description, error color, timestamp, footer. No-ops silently if the webhook
+# isn't configured, and never fails the build if the alert itself fails.
+discord_alert() {
+    local message="$1" esc
+    [ -n "${DISCORD_ALERT_WEBHOOK_URL:-}" ] || return 0
+    command -v curl >/dev/null 2>&1 || return 0
+    esc="${message//\\/\\\\}"
+    esc="${esc//\"/\\\"}"
+    esc="${esc//$'\n'/\\n}"
+    curl -sS -m 10 -H "Content-Type: application/json" \
+        -d "{\"username\":\"OmniBioAI\",\"embeds\":[{\"title\":\"omnibioai-ecosystem-build failed\",\"description\":\"${esc}\",\"color\":14893898,\"timestamp\":\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\",\"footer\":{\"text\":\"$(hostname) · ${ROOT}\"}}]}" \
+        "$DISCORD_ALERT_WEBHOOK_URL" >/dev/null 2>&1 || true
+}
+
+# Pass "docker" as $2 when the failure happened around a docker compose call
+# so the current (possibly mixed) container state lands in the log right
+# away, instead of requiring someone to SSH in and check.
 fail() {
     echo -e "${RED}${BOLD}✗ $1${RESET}"
+    if [ "${2:-}" = "docker" ]; then
+        echo -e "${YELLOW}${BOLD}--- docker compose ps (current state) ---${RESET}"
+        (cd "$STUDIO_DIR" && docker compose ps) 2>&1 || true
+    fi
+    discord_alert "$1"
     exit 1
 }
 
@@ -97,7 +127,7 @@ STUDIO_DIR="$ROOT/omnibioai-studio"
     cd "$STUDIO_DIR"
     docker compose build
     docker compose up -d --force-recreate
-) || fail "Docker compose build/up failed for omnibioai-studio."
+) || fail "Docker compose build/up failed for omnibioai-studio." docker
 
 ok "✓ omnibioai-studio built and running."
 echo ""
