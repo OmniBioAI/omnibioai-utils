@@ -34,7 +34,7 @@ for dir in "$ROOT"/*/; do
     [ -d "$dir/.git" ] || continue
     name=$(basename "$dir")
     case "$name" in
-        db-init|obsolete|utils|data|work) continue ;;
+        omnibioai|db-init|obsolete|utils|data|work) continue ;;
     esac
 
     total=$((total + 1))
@@ -97,7 +97,7 @@ if [ "$dirty" -gt 0 ]; then
         [ -d "$dir/.git" ] || continue
         name=$(basename "$dir")
         case "$name" in
-            db-init|obsolete|utils|data|work) continue ;;
+            omnibioai|db-init|obsolete|utils|data|work) continue ;;
         esac
         uncommitted=$(git -C "$dir" status --porcelain 2>/dev/null)
         unpushed=$(git -C "$dir" log @{u}.. --oneline 2>/dev/null | wc -l | tr -d ' ')
@@ -118,7 +118,7 @@ if [ "$non_main" -gt 0 ]; then
         [ -d "$dir/.git" ] || continue
         name=$(basename "$dir")
         case "$name" in
-            db-init|obsolete|utils|data|work) continue ;;
+            omnibioai|db-init|obsolete|utils|data|work) continue ;;
         esac
         branch=$(git -C "$dir" rev-parse --abbrev-ref HEAD 2>/dev/null)
         if [ "$branch" != "main" ] && [ "$branch" != "master" ] && [ -n "$branch" ]; then
