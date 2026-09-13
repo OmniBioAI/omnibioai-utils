@@ -486,3 +486,352 @@ def test_setup_live_issue_creation_and_linking(monkeypatch):
     setup.link_issues_to_project("project", [{"repo": "repo", "number": 1, "node_id": "node"}], False)
     monkeypatch.setattr(setup, "gql", Mock(side_effect=RuntimeError("bad")))
     setup.link_issues_to_project("project", [{"repo": "repo", "number": 1, "node_id": "node"}], False)
+
+
+class _BrowserObject:
+    """Small Playwright-shaped test double used by both browser utilities."""
+    def __init__(self, visible=True, count=1, fail=False):
+        self.visible, self.count_value, self.fail = visible, count, fail
+        self.url = "https://github.com/orgs/o/packages/container/pkg/settings"
+        self._title = "Package settings"
+        self.calls = []
+
+    def count(self): return self.count_value
+    @property
+    def first(self): return self
+    @property
+    def last(self): return self
+    def is_visible(self): return self.visible
+    def filter(self, **kwargs): return self
+    def locator(self, *args, **kwargs): return self
+    def get_by_role(self, *args, **kwargs): return self
+    def get_by_text(self, *args, **kwargs): return self
+    def all_text_contents(self): return ["Delete this package", "Change visibility"]
+    def all(self): return [self]
+    def get_attribute(self, name): return name
+    def click(self, **kwargs):
+        self.calls.append(("click", kwargs))
+        if self.fail: raise self.fail
+    def fill(self, value, **kwargs):
+        self.calls.append(("fill", value, kwargs))
+        if self.fail: raise self.fail
+    def check(self, **kwargs):
+        self.calls.append(("check", kwargs))
+        if self.fail: raise self.fail
+    def screenshot(self, **kwargs): self.calls.append(("screenshot", kwargs))
+    def title(self): return self._title
+    def goto(self, url, **kwargs): self.url = url
+    def wait_for_timeout(self, value): self.calls.append(("wait", value))
+    def inner_text(self): return "dialog"
+
+
+def test_browser_helpers_and_success_paths(monkeypatch, tmp_path):
+    delete = load("delete_packages_browser")
+    public = load("make_public_browser")
+    for mod, log_name in [(delete, "delete.log"), (public, "public.log")]:
+        monkeypatch.setattr(mod, "LOG_FILE", str(tmp_path / log_name))
+        assert mod.load_done_log() == set()
+        mod.mark_done("pkg")
+        assert mod.load_done_log() == {"pkg"}
+        page = _BrowserObject()
+        assert mod.find_open_dialog(page, "x") is page
+        assert mod.find_open_dialog(_BrowserObject(visible=False), "x") is None
+        mod.dump_debug_info(page, "a/b")
+
+    page = _BrowserObject()
+    page.get_by_text = lambda *a, **k: _BrowserObject(count=0)
+    assert delete.delete_package(page, "owner", "a/b") == "deleted"
+    assert public.set_package_visibility(page, "org", "a/b") == "changed"
+    assert public.set_package_public(page, "org", "pkg") == "changed"
+
+
+@pytest.mark.parametrize("title,url,expected", [
+    ("Page not found", "", "page_not_found"),
+    ("Your Packages", "https://github.com/users/o/packages", "page_not_found"),
+])
+def test_delete_and_visibility_early_browser_results(title, url, expected):
+    delete = load("delete_packages_browser")
+    page = _BrowserObject()
+    page._title, page.url = title, url
+    assert delete.delete_package(page, "o", "pkg") == expected
+    public = load("make_public_browser")
+    page._title, page.url = title, url
+    if title == "Page not found":
+        assert public.set_package_visibility(page, "o", "pkg") == expected
+
+
+def test_browser_error_fallbacks(monkeypatch):
+    delete = load("delete_packages_browser")
+    public = load("make_public_browser")
+    timeout = delete.PWTimeout("timeout")
+    # Button, dialog, textbox, and submit failures each have explicit results.
+    for expected in ["no_delete_button", "no_dialog", "no_confirm_textbox", "submit_button_not_found"]:
+        page = _BrowserObject()
+        if expected == "no_delete_button": page.fail = timeout
+        elif expected == "no_dialog":
+            page.locator = lambda *a, **k: _BrowserObject(count=0)
+        elif expected == "no_confirm_textbox":
+            def role(*args, **kwargs):
+                role_name = args[0] if args else ""
+                return _BrowserObject(fail=timeout) if role_name == "textbox" else _BrowserObject()
+            page.get_by_role = role
+            page.locator = lambda *a, **k: _BrowserObject(fail=timeout)
+        else:
+            dialog = _BrowserObject()
+            def role(*args, **kwargs):
+                role_name = args[0] if args else ""
+                return _BrowserObject(fail=timeout) if role_name == "button" and kwargs.get("name", "").startswith("I understand") else dialog
+            page.get_by_role = role
+        assert delete.delete_package(page, "o", "pkg") == expected
+
+    page = _BrowserObject()
+    page.get_by_text = lambda *a, **k: _BrowserObject(count=1)
+    assert public.set_package_visibility(page, "o", "pkg") == "already_public"
+    page = _BrowserObject(fail=timeout)
+    page.get_by_text = lambda *a, **k: _BrowserObject(count=0)
+    assert public.set_package_visibility(page, "o", "pkg") == "no_change_button"
+
+
+def test_public_candidate_loader_and_browser_cli_dry_runs(monkeypatch, tmp_path, capsys):
+    public = load("make_public_browser")
+    monkeypatch.setattr(public, "ORG_PACKAGES_FILE", str(tmp_path / "packages.tsv"))
+    (tmp_path / "packages.tsv").write_text("a\tprivate\npublic\tpublic\ninvalid\nomnibioai-tes\tprivate\n")
+    assert public.load_candidate_packages("org") == ["a"]
+    monkeypatch.setattr(public, "AUTH_STATE_FILE", str(tmp_path / "auth"))
+    Path(public.AUTH_STATE_FILE).write_text("{}"); monkeypatch.setattr(public, "LOG_FILE", str(tmp_path / "done"))
+    monkeypatch.setattr(sys, "argv", ["make_public_browser.py"])
+    monkeypatch.setattr(public, "set_package_public", lambda *a: "changed")
+    monkeypatch.setattr(public.time, "sleep", lambda _: None)
+    class PW:
+        chromium = SimpleNamespace(launch=lambda **kwargs: SimpleNamespace(
+            new_context=lambda **kw: SimpleNamespace(new_page=lambda: _BrowserObject()),
+            close=lambda: None))
+        def __enter__(self): return self
+        def __exit__(self, *args): pass
+    monkeypatch.setattr(public, "sync_playwright", lambda: PW())
+    public.main()
+    assert "Summary" in capsys.readouterr().out
+
+    delete = load("delete_packages_browser")
+    monkeypatch.setattr(delete, "AUTH_STATE_FILE", str(tmp_path / "auth"))
+    monkeypatch.setattr(delete, "PACKAGES_FILE", str(tmp_path / "old.txt"))
+    (tmp_path / "old.txt").write_text("pkg\n")
+    monkeypatch.setattr(delete, "LOG_FILE", str(tmp_path / "deleted"))
+    monkeypatch.setattr(sys, "argv", ["delete_packages_browser.py", "--delay", "0"])
+    delete.main()
+    assert "DRY RUN MODE" in capsys.readouterr().out
+
+
+def test_browser_mains_live_error_and_revert_paths(monkeypatch, tmp_path, capsys):
+    class Browser:
+        def new_context(self, **kwargs): return self
+        def new_page(self): return _BrowserObject()
+        def close(self): pass
+    class PW:
+        chromium = SimpleNamespace(launch=lambda **kwargs: Browser())
+        def __enter__(self): return self
+        def __exit__(self, *args): pass
+
+    public = load("make_public_browser")
+    monkeypatch.setattr(public, "sync_playwright", lambda: PW())
+    monkeypatch.setattr(public, "AUTH_STATE_FILE", str(tmp_path / "auth"))
+    Path(public.AUTH_STATE_FILE).write_text("{}")
+    monkeypatch.setattr(public, "ORG_PACKAGES_FILE", str(tmp_path / "pkgs"))
+    (tmp_path / "pkgs").write_text("one\tprivate\ntwo\tprivate\nthree\tprivate\n")
+    monkeypatch.setattr(public, "LOG_FILE", str(tmp_path / "done"))
+    # Use a stateful callable so retry, success, already-public, and failure are all exercised.
+    results = iter([RuntimeError("net::ERR_CONNECTION"), "changed", "already_public", "failed"])
+    def outcome(*args):
+        value = next(results)
+        if isinstance(value, Exception): raise value
+        return value
+    monkeypatch.setattr(public, "set_package_public", outcome)
+    monkeypatch.setattr(public.time, "sleep", lambda _: None)
+    monkeypatch.setattr(sys, "argv", ["make_public_browser.py", "--delay", "0", "--continue-on-fail"])
+    public.main()
+    assert "failed: 1" in capsys.readouterr().out
+
+    delete = load("delete_packages_browser")
+    monkeypatch.setattr(delete, "AUTH_STATE_FILE", str(tmp_path / "auth"))
+    monkeypatch.setattr(delete, "PACKAGES_FILE", str(tmp_path / "old"))
+    (tmp_path / "old").write_text("pkg\n")
+    monkeypatch.setattr(delete, "LOG_FILE", str(tmp_path / "deleted"))
+    monkeypatch.setattr(delete, "sync_playwright", lambda: PW())
+    monkeypatch.setattr(delete, "delete_package", lambda *a: "page_not_found")
+    monkeypatch.setattr(sys, "argv", ["delete_packages_browser.py", "--confirm-delete", "--delay", "0"])
+    monkeypatch.setattr("builtins.input", lambda: "DELETE")
+    delete.main()
+    assert "page_not_found: 1" in capsys.readouterr().out
+
+
+def test_remaining_error_and_cli_branches(monkeypatch, tmp_path):
+    prep = load("prepare_real_data_facs")
+    monkeypatch.setattr(prep.urllib.request, "urlopen", Mock(side_effect=prep.URLError("offline")))
+    with pytest.raises(prep.URLError): prep.download_clinvar(tmp_path / "x.gz", True)
+    assert prep.extract_score({"x": None}, "x.y") is None
+    assert prep.extract_gerp({"dbnsfp": {"gerp++_rs": 2}}) == 2
+
+    chunks = load("create_new_chunks")
+    monkeypatch.setattr(chunks, "DATA_DIR", tmp_path)
+    bad = tmp_path / "_general_corpus_chunkbad"; bad.mkdir()
+    assert chunks.get_next_chunk_number() == 57
+    monkeypatch.setattr(chunks, "get_updated_pmids", lambda: [tmp_path / "missing.json"])
+    chunks.create_chunks_from_updates()
+
+    pub = load("sync_pubmed_updates")
+    monkeypatch.setattr(pub.ftplib, "FTP", Mock(side_effect=OSError("offline")))
+    with pytest.raises(OSError): pub.get_all_update_files()
+    monkeypatch.setattr(pub.requests, "get", Mock(side_effect=RuntimeError("offline")))
+    with pytest.raises(RuntimeError): pub.download_file("not-cached.gz")
+
+
+def test_browser_fallback_controls_and_diagnostics(monkeypatch, capsys):
+    delete = load("delete_packages_browser")
+    public = load("make_public_browser")
+    timeout = delete.PWTimeout("timeout")
+
+    class Broken(_BrowserObject):
+        def screenshot(self, **kwargs): raise RuntimeError("screen")
+        def get_by_role(self, *args, **kwargs): raise RuntimeError("roles")
+        def locator(self, *args, **kwargs): raise RuntimeError("locators")
+    delete.dump_debug_info(Broken(), "x")
+    public.dump_debug_info(Broken(), "x")
+
+    page = _BrowserObject(); dialog = _BrowserObject()
+    page.get_by_text = lambda *a, **k: _BrowserObject(count=0)
+    monkeypatch.setattr(public, "find_open_dialog", lambda *a: dialog)
+    dialog.locator = lambda *a, **k: _BrowserObject(fail=timeout)
+    page.locator = lambda *a, **k: _BrowserObject()
+    assert public.set_package_visibility(page, "o", "p") == "changed"
+
+    page = _BrowserObject(); page.get_by_text = lambda *a, **k: _BrowserObject(count=0)
+    dialog = _BrowserObject(); monkeypatch.setattr(public, "find_open_dialog", lambda *a: dialog)
+    dialog.locator = lambda *a, **k: _BrowserObject(fail=timeout)
+    page.locator = lambda *a, **k: _BrowserObject(fail=timeout)
+    assert public.set_package_visibility(page, "o", "p") == "no_public_radio"
+
+    page = _BrowserObject(); page.get_by_text = lambda *a, **k: _BrowserObject(count=0)
+    dialog = _BrowserObject(); monkeypatch.setattr(public, "find_open_dialog", lambda *a: dialog)
+    dialog.locator = lambda *a, **k: _BrowserObject()
+    dialog.get_by_role = lambda *a, **k: _BrowserObject(fail=timeout)
+    page.locator = lambda *a, **k: _BrowserObject(fail=timeout)
+    assert public.set_package_visibility(page, "o", "p") == "no_confirm_textbox"
+    assert "DEBUG" in capsys.readouterr().out
+
+
+def test_agent_eval_edge_cases_and_reference_download_success(monkeypatch, tmp_path):
+    agent = load("agent_tool_selection_eval")
+    assert agent.cosine_sim(np.array([0., 0.]), np.array([1., 0.])) == 0.0
+    monkeypatch.setattr(agent, "call_ollama_chat_with_tools", lambda *a: (None, 0.0, "raw"))
+    monkeypatch.setattr(agent, "ollama_embed", lambda *a: np.array([1., 0.]))
+    monkeypatch.setattr(agent, "TEST_CASES", [{"id": "miss", "category": "c", "prompt": "p", "expected_tool_id": "missing", "required_args": []}])
+    result = agent.run_eval("u", "m", "e", 1, [{"tool_id": "a"}])[0]
+    assert result.malformed_json
+    agent.print_summary([result])
+    with pytest.raises(SystemExit): agent.load_corpus(str(tmp_path / "missing.yaml"), None, None, None, [], False)
+
+    refs = load("download_references")
+    downloader = refs.ReferenceDownloader(tmp_path / "refs")
+    monkeypatch.setattr(refs.subprocess, "run", Mock())
+    assert downloader.download_file("url", tmp_path / "refs" / "x", "X") is True
+    assert downloader._downloaded
+    downloader.print_status()
+
+
+def test_setup_main_and_reference_cli_control_paths(monkeypatch, tmp_path, capsys):
+    setup = load("setup_beta_project")
+    setup.GITHUB_TOKEN = "token"
+    monkeypatch.setattr(setup, "gql", lambda *a, **k: {"viewer": {"login": setup.OWNER, "id": "id"}})
+    monkeypatch.setattr(setup, "setup_labels", lambda *a: None)
+    monkeypatch.setattr(setup, "create_all_issues", lambda *a: [{"repo": "r", "number": 1, "priority": "High"}])
+    monkeypatch.setattr(sys, "argv", ["setup_beta_project.py", "--issues-only", "--dry-run"])
+    setup.main()
+    assert "DRY RUN complete" in capsys.readouterr().out
+
+    refs = load("download_references")
+    monkeypatch.setattr(sys, "argv", ["download_references.py", "--base-dir", str(tmp_path), "--scaffold"])
+    monkeypatch.setattr(refs.ReferenceDownloader, "scaffold_directories", lambda self: None)
+    monkeypatch.setattr(refs.ReferenceDownloader, "flush_registry", lambda self: None)
+    refs.main()
+    monkeypatch.setattr(sys, "argv", ["download_references.py", "--base-dir", str(tmp_path)])
+    with pytest.raises(SystemExit): refs.main()
+
+
+def test_prepare_download_parse_reservoir_and_empty_main(monkeypatch, tmp_path):
+    prep = load("prepare_real_data_facs")
+    class Response:
+        def __init__(self): self.done = False
+        def __enter__(self): return self
+        def __exit__(self, *a): pass
+        def read(self, size):
+            if self.done: return b""
+            self.done = True
+            return b"x"
+    monkeypatch.setattr(prep.urllib.request, "urlopen", lambda *a, **k: Response())
+    prep.download_clinvar(tmp_path / "new" / "x.gz", True)
+    assert (tmp_path / "new" / "x.gz").read_bytes() == b"x"
+    # More records than the reservoir size exercises replacement/non-replacement.
+    vcf = tmp_path / "r.vcf.gz"
+    with gzip.open(vcf, "wt") as fh:
+        for i in range(4): fh.write(f"1\t{i}\t.\tA\tG\t.\t.\tCLNSIG=Pathogenic\n")
+    assert len(prep.parse_clinvar_variants(vcf, 1, 1)["Pathogenic"]) == 1
+    monkeypatch.setattr(sys, "argv", ["prepare_real_data_facs.py", "--out-dir", str(tmp_path), "--clinvar-cache", str(vcf)])
+    monkeypatch.setattr(prep, "download_clinvar", lambda *a: None)
+    monkeypatch.setattr(prep, "parse_clinvar_variants", lambda *a: {"Pathogenic": [], "Benign": []})
+    with pytest.raises(SystemExit): prep.main()
+
+
+def test_browser_login_and_missing_input_paths(monkeypatch, tmp_path, capsys):
+    for name in ["delete_packages_browser", "make_public_browser"]:
+        mod = load(name)
+        class Context:
+            def new_page(self): return _BrowserObject()
+            def storage_state(self, **kwargs): pass
+        class Browser:
+            def new_context(self, **kwargs): return Context()
+            def close(self): pass
+        class PW:
+            chromium = SimpleNamespace(launch=lambda **kwargs: Browser())
+            def __enter__(self): return self
+            def __exit__(self, *args): pass
+        monkeypatch.setattr(mod, "sync_playwright", lambda: PW())
+        monkeypatch.setattr(mod, "AUTH_STATE_FILE", str(tmp_path / (name + ".auth")))
+        monkeypatch.setattr("builtins.input", lambda: "")
+        mod.do_login()
+        monkeypatch.setattr(sys, "argv", [name + ".py"])
+        Path(mod.AUTH_STATE_FILE).unlink(missing_ok=True)
+        with pytest.raises(SystemExit): mod.main()
+    assert "No saved session" in capsys.readouterr().out
+
+
+def test_small_remaining_branches(monkeypatch):
+    setup = load("setup_beta_project")
+    response = Mock(); response.json.return_value = {"errors": ["bad"]}
+    monkeypatch.setattr(setup.requests, "post", Mock(return_value=response))
+    with pytest.raises(RuntimeError): setup.gql("q")
+    monkeypatch.setattr(setup, "rest_get", Mock(side_effect=__import__("requests").HTTPError()))
+    monkeypatch.setattr(setup, "rest_post", Mock(side_effect=RuntimeError("exists")))
+    setup.ensure_label("repo", "x", "fff")
+    monkeypatch.setattr(setup, "ensure_label", Mock())
+    monkeypatch.setattr(setup, "ISSUES", [("repo", "t", "b", "Low", "c", [])])
+    setup.setup_labels(False)
+    setup.create_issue("repo", "t", "b", "Low", "c", ["x"], True)
+    setup.link_issues_to_project("p", [{"repo": "r", "number": 1}, {"repo": "r", "number": 2, "node_id": "DRY_NODE"}], False)
+
+    public = load("make_public_browser")
+    page = _BrowserObject(); page.get_by_text = lambda *a, **k: _BrowserObject(count=0)
+    monkeypatch.setattr(public, "find_open_dialog", lambda *a: None)
+    assert public.set_package_visibility(page, "o", "p") == "no_dialog"
+    monkeypatch.setattr(public, "ORG_PACKAGES_FILE", "/definitely/missing/packages")
+    with pytest.raises(SystemExit): public.load_candidate_packages("o")
+    agent = load("agent_tool_selection_eval")
+    monkeypatch.setattr(agent, "load_corpus_from_api", lambda *a: [])
+    assert agent.load_corpus(None, None, None, "http://tes", [], False) == []
+    with pytest.raises(SystemExit): agent.load_corpus(None, "/missing/tools", None, None, [], False)
+    with pytest.raises(SystemExit): agent.load_corpus("/missing/tools.yaml", None, None, None, [], False)
+    assert load("download_references")._now()
+    refs = load("download_references")
+    monkeypatch.setattr(sys, "argv", ["download_references.py", "--base-dir", "/tmp/refs", "--assemblies", "GRCh38", "--only", "genome", "--dry-run"])
+    monkeypatch.setattr(refs, "ASSEMBLY_MAP", {"GRCh38": ("human", "missing_downloader")})
+    monkeypatch.setattr(refs.ReferenceDownloader, "scaffold_directories", lambda self: None)
+    refs.main()
