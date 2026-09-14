@@ -50,12 +50,20 @@ Developer utilities, automation scripts, and ecosystem management tools for the 
 
 | Script | Description |
 |--------|-------------|
-| `download_pubmed.sh` | Loads PubMed abstracts into the RAG FAISS index via `ragbio.utils.rag_data_loader`, run inside the `omnibioai-studio-rag-1` container for a set of predefined disease/topic studies |
-| `split_general_corpus.sh` | Splits the `_general_corpus` abstract directory (tens of millions of files) into fixed-size chunk subdirectories so `embedding_engine` can process them per-chunk without code changes |
-| `test_split_on_sample.sh` | Dry-run of `split_general_corpus.sh` against a small sample copied into `/tmp`; verifies chunk counts match before running the real split on the full corpus |
-| `run_chunks.sh` | Runs `embedding_engine.py` over each `_general_corpus_chunk*` directory with bounded concurrency, to avoid the OOM/swap issues seen when running unbounded |
-| `sync_pubmed_updates.py` | Daily incremental PubMed sync — pulls new/updated files from the NCBI FTP update feed, updates existing abstract JSON files in place, and tracks progress in `sync_state.json` |
-| `create_new_chunks.py` | Creates new `_general_corpus_chunk*` directories from abstracts updated by `sync_pubmed_updates.py`, continuing the existing chunk numbering |
+| [`pubmed/download_pubmed.sh`](pubmed/download_pubmed.sh) | Loads PubMed abstracts into the RAG FAISS index via `ragbio.utils.rag_data_loader`, run inside the `omnibioai-studio-rag-1` container for a set of predefined disease/topic studies |
+| [`pubmed/split_general_corpus.sh`](pubmed/split_general_corpus.sh) | Splits the `_general_corpus` abstract directory (tens of millions of files) into fixed-size chunk subdirectories so `embedding_engine` can process them per-chunk without code changes |
+| `test_split_on_sample.sh` | Dry-run of [`pubmed/split_general_corpus.sh`](pubmed/split_general_corpus.sh) against a small sample copied into `/tmp`; verifies chunk counts match before running the real split on the full corpus |
+| [`pubmed/run_chunks.sh`](pubmed/run_chunks.sh) | Runs `embedding_engine.py` over each `_general_corpus_chunk*` directory with bounded concurrency, to avoid the OOM/swap issues seen when running unbounded |
+| [`pubmed/sync_pubmed_updates.py`](pubmed/sync_pubmed_updates.py) | Daily incremental PubMed sync — pulls new/updated files from the NCBI FTP update feed, updates existing abstract JSON files in place, and tracks progress in `sync_state.json` |
+| [`pubmed/create_new_chunks.py`](pubmed/create_new_chunks.py) | Creates new `_general_corpus_chunk*` directories from abstracts updated by [`pubmed/sync_pubmed_updates.py`](pubmed/sync_pubmed_updates.py), continuing the existing chunk numbering |
+| [`pubmed/reindex_one_shard.py`](pubmed/reindex_one_shard.py) | Reindexes one PubMed shard with 1024-D mxbai embeddings on CUDA/FP16 into a separate staging index |
+| [`pubmed/reindex_one_shard_ollama.py`](pubmed/reindex_one_shard_ollama.py) | Reindexes one PubMed shard with 1024-D mxbai embeddings through Ollama into a separate staging index |
+| [`pubmed/test_index.py`](pubmed/test_index.py) | Runs an Ollama embedding benchmark on one PubMed chunk; an operational script, not a pytest unit test |
+| [`pubmed/reindex_1024_mac.py`](pubmed/reindex_1024_mac.py) | Resumable MPS worker for general corpus and domain indexes, with embedding checkpoints, verified Hugging Face uploads, and transient-file cleanup |
+
+See [pubmed/README.md](pubmed/README.md) for discovery, data-root configuration,
+checkpoint recovery, and CLI examples. PubMed source data and generated indexes
+remain outside this repository.
 
 ### Reference Data
 
@@ -208,7 +216,7 @@ where available when deploying on another host.
 | Time | Script | Purpose |
 |------|--------|---------|
 | 2AM daily | [`run_coverage_host.py`](../omnibioai-control-center/scripts/run_coverage_host.py) | Test coverage |
-| 3AM daily | `sync_pubmed_updates.py` | PubMed sync |
+| 3AM daily | [`pubmed/sync_pubmed_updates.py`](pubmed/sync_pubmed_updates.py) | PubMed sync |
 | 4AM daily | [`backup-mysql.sh`](../omnibioai-studio/scripts/backup-mysql.sh) | Database backup |
 | Hourly | [`check_and_reindex.sh`](../omnibioai-dev-hub/scripts/check_and_reindex.sh) | Re-index check |
 | 8AM daily | `check_base_images.sh` | Base image freshness vs. ghcr.io/omnibioai |

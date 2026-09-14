@@ -62,7 +62,7 @@ def test_update_ghcr_refs_generated_report_is_reprocessed_on_repeat_run(tmp_path
 
 
 def test_split_general_corpus_in_temp_copy(tmp_path):
-    source = ROOT / "split_general_corpus.sh"
+    source = ROOT / "pubmed" / "split_general_corpus.sh"
     script = tmp_path / "split.sh"
     text = source.read_text().replace(
         'SRC="/home/manish/Desktop/machine/omnibioai-data/PubMed/Abstracts/_general_corpus"',
@@ -77,3 +77,5 @@ def test_split_general_corpus_in_temp_copy(tmp_path):
     assert result.returncode == 0, result.stderr
     assert len(list((tmp_path / "parent").glob("_general_corpus_chunk*/*.json"))) == 5
     assert not list(src_dir.glob("*.json"))
+    assert "-printf" not in text
+    assert '"${path#./}"' in text

@@ -14,7 +14,12 @@ CHUNK_PREFIX="_general_corpus_chunk"
 cd "$SRC"
 
 echo "[INFO] Listing files (this may take a bit for 28M entries)..."
-find . -maxdepth 1 -name "*.json" -printf '%f\n' > /tmp/gc_filelist.txt
+# Strip find's leading ./ with POSIX shell parameter expansion.
+find . -maxdepth 1 -name "*.json" -exec sh -c '
+  for path do
+    printf "%s\n" "${path#./}"
+  done
+' sh {} + > /tmp/gc_filelist.txt
 TOTAL=$(wc -l < /tmp/gc_filelist.txt)
 echo "[INFO] Total files: $TOTAL"
 
@@ -25,8 +30,8 @@ for listfile in /tmp/gc_chunk_*; do
   dest="${PARENT}/${CHUNK_PREFIX}${idx}"
   mkdir -p "$dest"
   echo "[INFO] Moving $(wc -l < "$listfile") files -> $dest"
-  # xargs -a reads args from file, -P0 for parallel mv could be added if needed
-  xargs -a "$listfile" -I{} mv "$SRC/{}" "$dest/"
+  # Feed the list on stdin; BSD xargs has no GNU -a option.
+  xargs -I{} mv "$SRC/{}" "$dest/" < "$listfile"
 done
 
 echo "[DONE] Split complete. Chunks created under $PARENT/${CHUNK_PREFIX}*"

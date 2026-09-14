@@ -135,7 +135,7 @@ class FakeIndex:
 
 
 def test_reindex_cuda_success_and_validation(monkeypatch, tmp_path):
-    r = load("reindex_one_shard")
+    r = load("pubmed.reindex_one_shard")
     inp, stage = tmp_path / "in", tmp_path / "stage"; inp.mkdir()
     (inp / "1.txt").write_text("hello"); (inp / "2.txt").write_text(" ")
     monkeypatch.setattr(r, "INPUT_DIR", inp); monkeypatch.setattr(r, "STAGING_DIR", stage)
@@ -154,7 +154,7 @@ def test_reindex_cuda_success_and_validation(monkeypatch, tmp_path):
 
 
 def test_reindex_cuda_error_branches(monkeypatch, tmp_path):
-    r = load("reindex_one_shard"); monkeypatch.setattr(r.torch.cuda, "is_available", lambda: False)
+    r = load("pubmed.reindex_one_shard"); monkeypatch.setattr(r.torch.cuda, "is_available", lambda: False)
     with pytest.raises(RuntimeError, match="CUDA"): r.main()
     monkeypatch.setattr(r.torch.cuda, "is_available", lambda: True); empty = tmp_path / "empty"; empty.mkdir()
     monkeypatch.setattr(r, "INPUT_DIR", empty); monkeypatch.setattr(r, "STAGING_DIR", tmp_path / "stage")
@@ -163,7 +163,7 @@ def test_reindex_cuda_error_branches(monkeypatch, tmp_path):
 
 
 def test_reindex_ollama_success_and_errors(monkeypatch, tmp_path):
-    r = load("reindex_one_shard_ollama"); inp, stage = tmp_path / "in", tmp_path / "stage"; inp.mkdir()
+    r = load("pubmed.reindex_one_shard_ollama"); inp, stage = tmp_path / "in", tmp_path / "stage"; inp.mkdir()
     (inp / "1.txt").write_text("hello"); (inp / "2.txt").write_text(" ")
     monkeypatch.setattr(r, "INPUT_DIR", inp); monkeypatch.setattr(r, "STAGING_DIR", stage)
     index = FakeIndex(r.DIMENSION); monkeypatch.setattr(r.faiss, "IndexFlatIP", lambda d: index); monkeypatch.setattr(r.faiss, "normalize_L2", lambda x: x)
@@ -246,7 +246,7 @@ def test_download_and_sync_remaining_branches(monkeypatch, tmp_path):
     monkeypatch.setattr(d.subprocess, "run", lambda *x, **y: None); assert dl.download_file("u", tmp_path / "x", "x") is True
     assert dl.registry["downloads"] if "downloads" in dl.registry else True
     dl.registry = {}; dl.flush_registry(); assert (tmp_path / d.REGISTRY_FILENAME).exists()
-    s = load("sync_pubmed_updates"); state_file = tmp_path / "state"; monkeypatch.setattr(s, "STATE_FILE", state_file); state_file.write_text('{"x": 1}'); assert s.load_state()["x"] == 1
+    s = load("pubmed.sync_pubmed_updates"); state_file = tmp_path / "state"; monkeypatch.setattr(s, "STATE_FILE", state_file); state_file.write_text('{"x": 1}'); assert s.load_state()["x"] == 1
     class BadFTP:
         def login(self): pass
         def cwd(self, x): pass
@@ -334,9 +334,9 @@ def test_setup_main_error_and_live_branches(monkeypatch):
 
 
 def test_reindex_validation_failures(monkeypatch,tmp_path):
-    r=load("reindex_one_shard"); inp=tmp_path/"i"; inp.mkdir(); (inp/"1.txt").write_text("x"); monkeypatch.setattr(r,"INPUT_DIR",inp); monkeypatch.setattr(r,"STAGING_DIR",tmp_path/"s"); monkeypatch.setattr(r.torch.cuda,"is_available",lambda:True); monkeypatch.setattr(r.torch.cuda,"get_device_name",lambda _:"x"); monkeypatch.setattr(r.torch.cuda,"mem_get_info",lambda:(1,2)); monkeypatch.setattr(r,"SentenceTransformer",lambda *a,**k:SimpleNamespace(device="cuda",parameters=lambda:iter([SimpleNamespace(dtype="x")]),encode=lambda *a,**k:np.ones((1,1),dtype=np.float32))); monkeypatch.setattr(r.faiss,"IndexFlatIP",lambda d:FakeIndex(d))
+    r=load("pubmed.reindex_one_shard"); inp=tmp_path/"i"; inp.mkdir(); (inp/"1.txt").write_text("x"); monkeypatch.setattr(r,"INPUT_DIR",inp); monkeypatch.setattr(r,"STAGING_DIR",tmp_path/"s"); monkeypatch.setattr(r.torch.cuda,"is_available",lambda:True); monkeypatch.setattr(r.torch.cuda,"get_device_name",lambda _:"x"); monkeypatch.setattr(r.torch.cuda,"mem_get_info",lambda:(1,2)); monkeypatch.setattr(r,"SentenceTransformer",lambda *a,**k:SimpleNamespace(device="cuda",parameters=lambda:iter([SimpleNamespace(dtype="x")]),encode=lambda *a,**k:np.ones((1,1),dtype=np.float32))); monkeypatch.setattr(r.faiss,"IndexFlatIP",lambda d:FakeIndex(d))
     with pytest.raises(RuntimeError,match="Unexpected dimension"): r.main()
-    o=load("reindex_one_shard_ollama"); monkeypatch.setattr(o,"INPUT_DIR",inp); monkeypatch.setattr(o,"STAGING_DIR",tmp_path/"os"); resp=Mock(); resp.json.return_value={"embeddings":[[1.0]*o.DIMENSION]}; monkeypatch.setattr(o.requests,"post",Mock(return_value=resp)); idx=FakeIndex(o.DIMENSION); monkeypatch.setattr(o.faiss,"IndexFlatIP",lambda d:idx); monkeypatch.setattr(o.faiss,"normalize_L2",lambda x:None); monkeypatch.setattr(o.faiss,"write_index",lambda *x:None); bad=SimpleNamespace(d=1,ntotal=1); monkeypatch.setattr(o.faiss,"read_index",lambda *x:bad)
+    o=load("pubmed.reindex_one_shard_ollama"); monkeypatch.setattr(o,"INPUT_DIR",inp); monkeypatch.setattr(o,"STAGING_DIR",tmp_path/"os"); resp=Mock(); resp.json.return_value={"embeddings":[[1.0]*o.DIMENSION]}; monkeypatch.setattr(o.requests,"post",Mock(return_value=resp)); idx=FakeIndex(o.DIMENSION); monkeypatch.setattr(o.faiss,"IndexFlatIP",lambda d:idx); monkeypatch.setattr(o.faiss,"normalize_L2",lambda x:None); monkeypatch.setattr(o.faiss,"write_index",lambda *x:None); bad=SimpleNamespace(d=1,ntotal=1); monkeypatch.setattr(o.faiss,"read_index",lambda *x:bad)
     with pytest.raises(RuntimeError,match="Invalid dimension"): o.main()
 
 def test_agent_api_and_yaml_loading(monkeypatch, tmp_path):

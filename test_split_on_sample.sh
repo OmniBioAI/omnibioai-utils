@@ -60,7 +60,7 @@ if [ "$MOVED_TOTAL" -eq "$COPIED" ] && [ "$REMAINING_IN_SRC" -eq 0 ]; then
   echo "[PASS] Split logic verified successfully."
   echo "[INFO] Cleaning up tmp sandbox at $TEST_ROOT"
   rm -rf "$TEST_ROOT"
-  echo "[DONE] Cleanup complete. Safe to run split_general_corpus.sh on the real directory."
+  echo "[DONE] Cleanup complete. Safe to run pubmed/split_general_corpus.sh on the real directory."
 else
   echo "[FAIL] Counts did not match — leaving $TEST_ROOT in place for inspection."
   exit 1

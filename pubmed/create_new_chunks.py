@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Create new corpus chunks from updated PubMed abstracts
-Runs after sync_pubmed_updates.py completes
+Runs after pubmed/sync_pubmed_updates.py completes
 """
 import json
 import os

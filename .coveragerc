@@ -2,5 +2,6 @@
 omit =
     tests/*
     test_*.py
+    pubmed/test_index.py
     */__pycache__/*
     __pycache__/*

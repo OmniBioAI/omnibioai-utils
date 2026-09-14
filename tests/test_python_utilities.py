@@ -19,7 +19,7 @@ def load(name):
 
 
 def test_create_new_chunks_helpers_and_chunking(tmp_path, monkeypatch):
-    mod = load("create_new_chunks")
+    mod = load("pubmed.create_new_chunks")
     data = tmp_path / "data"
     domain = data / "topic"
     domain.mkdir(parents=True)
@@ -51,7 +51,7 @@ def test_create_new_chunks_helpers_and_chunking(tmp_path, monkeypatch):
 
 
 def test_create_new_chunks_skips_bad_file_and_empty_run(tmp_path, monkeypatch):
-    mod = load("create_new_chunks")
+    mod = load("pubmed.create_new_chunks")
     monkeypatch.setattr(mod, "DATA_DIR", tmp_path)
     monkeypatch.setattr(mod, "get_updated_pmids", lambda: [])
     assert mod.create_chunks_from_updates() is None
@@ -66,7 +66,7 @@ def test_create_new_chunks_skips_bad_file_and_empty_run(tmp_path, monkeypatch):
 
 
 def test_pubmed_state_and_file_filtering(tmp_path, monkeypatch):
-    mod = load("sync_pubmed_updates")
+    mod = load("pubmed.sync_pubmed_updates")
     state_file = tmp_path / "state.json"
     monkeypatch.setattr(mod, "STATE_FILE", state_file)
     initial = mod.load_state()
@@ -79,7 +79,7 @@ def test_pubmed_state_and_file_filtering(tmp_path, monkeypatch):
 
 
 def test_pubmed_ftp_listing_and_download_paths(tmp_path, monkeypatch):
-    mod = load("sync_pubmed_updates")
+    mod = load("pubmed.sync_pubmed_updates")
 
     class FakeFTP:
         def __init__(self, host): self.host = host
@@ -105,7 +105,7 @@ def test_pubmed_ftp_listing_and_download_paths(tmp_path, monkeypatch):
 
 
 def test_pubmed_xml_parse_and_update(tmp_path, monkeypatch):
-    mod = load("sync_pubmed_updates")
+    mod = load("pubmed.sync_pubmed_updates")
     xml = """<PubmedArticleSet>
       <PubmedArticle><MedlineCitation><PMID>1</PMID><Article><ArticleTitle>Title</ArticleTitle>
       <Abstract><AbstractText>First</AbstractText><AbstractText>Second</AbstractText></Abstract>
@@ -133,7 +133,7 @@ def test_pubmed_xml_parse_and_update(tmp_path, monkeypatch):
 
 
 def test_pubmed_main_no_work_and_one_file_workflow(monkeypatch, tmp_path, capsys):
-    mod = load("sync_pubmed_updates")
+    mod = load("pubmed.sync_pubmed_updates")
     monkeypatch.setattr(mod, "load_state", lambda: {"total_updated": 0, "total_new": 0, "files_processed": []})
     monkeypatch.setattr(mod, "get_all_update_files", lambda: [])
     mod.main()
@@ -671,14 +671,14 @@ def test_remaining_error_and_cli_branches(monkeypatch, tmp_path):
     assert prep.extract_score({"x": None}, "x.y") is None
     assert prep.extract_gerp({"dbnsfp": {"gerp++_rs": 2}}) == 2
 
-    chunks = load("create_new_chunks")
+    chunks = load("pubmed.create_new_chunks")
     monkeypatch.setattr(chunks, "DATA_DIR", tmp_path)
     bad = tmp_path / "_general_corpus_chunkbad"; bad.mkdir()
     assert chunks.get_next_chunk_number() == 57
     monkeypatch.setattr(chunks, "get_updated_pmids", lambda: [tmp_path / "missing.json"])
     chunks.create_chunks_from_updates()
 
-    pub = load("sync_pubmed_updates")
+    pub = load("pubmed.sync_pubmed_updates")
     monkeypatch.setattr(pub.ftplib, "FTP", Mock(side_effect=OSError("offline")))
     with pytest.raises(OSError): pub.get_all_update_files()
     monkeypatch.setattr(pub.requests, "get", Mock(side_effect=RuntimeError("offline")))

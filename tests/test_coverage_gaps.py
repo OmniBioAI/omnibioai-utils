@@ -278,7 +278,7 @@ def test_prepare_main_exits_on_empty_bucket(monkeypatch, tmp_path):
         p.main()
 
 
-# ── reindex_one_shard.py ──────────────────────────────────────────────────────
+# ── pubmed/reindex_one_shard.py ──────────────────────────────────────────────────────
 
 def _reindex_common_mocks(monkeypatch, r, inp, stage):
     monkeypatch.setattr(r, "INPUT_DIR", inp)
@@ -297,7 +297,7 @@ def _reindex_common_mocks(monkeypatch, r, inp, stage):
 
 
 def test_reindex_empty_batch_skipped_then_index_dimension_mismatch(monkeypatch, tmp_path):
-    r = load("reindex_one_shard")
+    r = load("pubmed.reindex_one_shard")
     inp, stage = tmp_path / "in", tmp_path / "stage"
     inp.mkdir()
     (inp / "1.txt").write_text(" ")  # blank -> its own empty batch (BATCH_SIZE=1) -> "continue"
@@ -309,7 +309,7 @@ def test_reindex_empty_batch_skipped_then_index_dimension_mismatch(monkeypatch, 
 
 
 def test_reindex_ntotal_mismatch(monkeypatch, tmp_path):
-    r = load("reindex_one_shard")
+    r = load("pubmed.reindex_one_shard")
     inp, stage = tmp_path / "in2", tmp_path / "stage2"
     inp.mkdir()
     (inp / "1.txt").write_text("hello")
@@ -319,10 +319,10 @@ def test_reindex_ntotal_mismatch(monkeypatch, tmp_path):
         r.main()
 
 
-# ── reindex_one_shard_ollama.py ───────────────────────────────────────────────
+# ── pubmed/reindex_one_shard_ollama.py ───────────────────────────────────────────────
 
 def test_reindex_ollama_empty_batch_skipped_then_ntotal_mismatch(monkeypatch, tmp_path):
-    r = load("reindex_one_shard_ollama")
+    r = load("pubmed.reindex_one_shard_ollama")
     inp, stage = tmp_path / "in", tmp_path / "stage"
     inp.mkdir()
     (inp / "1.txt").write_text(" ")  # blank -> its own empty batch (BATCH_SIZE=1) -> "continue"
@@ -359,10 +359,10 @@ def test_setup_main_warns_on_token_owner_mismatch(monkeypatch):
     s.main()
 
 
-# ── sync_pubmed_updates.py ────────────────────────────────────────────────────
+# ── pubmed/sync_pubmed_updates.py ────────────────────────────────────────────────────
 
 def test_sync_parse_xml_skips_article_missing_pmid(tmp_path):
-    s = load("sync_pubmed_updates")
+    s = load("pubmed.sync_pubmed_updates")
     import gzip
     xml = (
         "<PubmedArticleSet>"
