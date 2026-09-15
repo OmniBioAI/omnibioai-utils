@@ -451,24 +451,17 @@ class WorkerTests(unittest.TestCase):
             self.assertFalse(self.manifest["shards"][self.unit.key]["local_artifacts_verified"])
 
     def test_cli_modes_default_all_and_single_domain(self):
-        fake_torch = types.SimpleNamespace(
-            backends=types.SimpleNamespace(mps=types.SimpleNamespace(is_available=lambda: True))
-        )
-        model = mock.Mock(device="mps")
-        model.get_sentence_embedding_dimension.return_value = 1024
-        with mock.patch.object(script, "torch", fake_torch), \
-             mock.patch.object(script, "HfApi", return_value=self.hub.api), \
-             mock.patch.object(script, "SentenceTransformer", return_value=model), \
-             mock.patch.object(script, "process_unit") as process:
+        with mock.patch.object(script, "HfApi", return_value=self.hub.api), \
+             mock.patch.object(script, "supervise_units", return_value=0) as supervise:
             self.hub.sources["Cardiovascular.jsonl.gz"] = b"source"
             for args, expected in (([], [self.unit.key, "domains/Cardiovascular"]),
                                    (["--domain", "Cardiovascular"], ["domains/Cardiovascular"]),
                                    (["--start", "0", "--end", "0"], [self.unit.key]),
                                    (["--mode", "general", "--start", "0", "--end", "0"], [self.unit.key])):
                 with self.subTest(args=args), mock.patch("sys.argv", ["worker"] + args):
-                    process.reset_mock()
+                    supervise.reset_mock()
                     script.main()
-                    self.assertEqual([c.kwargs["unit"].key for c in process.call_args_list], expected)
+                    self.assertEqual([unit.key for unit in supervise.call_args.args[0]], expected)
 
 
 if __name__ == "__main__":

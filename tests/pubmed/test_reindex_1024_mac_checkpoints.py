@@ -69,6 +69,7 @@ class CheckpointTests(unittest.TestCase):
             "SOURCE_ROOT": self.root / "source",
             "MANIFEST_FILE": self.root / "manifest.json",
             "CHECKPOINT_ROWS": 2,
+            "torch": types.SimpleNamespace(mps=types.SimpleNamespace(empty_cache=lambda: None)),
             "log": mock.Mock(),
         }.items():
             patcher = mock.patch.object(script, name, value)
@@ -86,6 +87,56 @@ class CheckpointTests(unittest.TestCase):
 
     def path(self, block):
         return self.directory / f"block_{block:06d}.npz"
+
+    def test_faiss_native_module_is_lazy_and_patchable(self):
+        fake_faiss = object()
+        with mock.patch.object(script, "faiss", None), \
+             mock.patch.dict("sys.modules", {"faiss": fake_faiss}):
+            self.assertIs(script.load_faiss(), fake_faiss)
+
+    def test_mps_runtime_is_lazy_and_patchable(self):
+        fake_torch = object()
+        fake_transformer = object()
+        fake_sentence_transformers = types.SimpleNamespace(
+            SentenceTransformer=fake_transformer
+        )
+        with mock.patch.object(script, "torch", None), \
+             mock.patch.object(script, "SentenceTransformer", None), \
+             mock.patch.dict("sys.modules", {
+                 "torch": fake_torch,
+                 "sentence_transformers": fake_sentence_transformers,
+             }):
+            self.assertEqual(script.load_mps_runtime(), (fake_torch, fake_transformer))
+
+    def test_faiss_is_loaded_after_model_in_cli(self):
+        fake_torch = types.SimpleNamespace(
+            backends=types.SimpleNamespace(mps=types.SimpleNamespace(is_available=lambda: True))
+        )
+        events = []
+        model = mock.Mock(device="mps")
+        model.get_sentence_embedding_dimension.return_value = 1024
+        with mock.patch.object(script, "torch", fake_torch), \
+             mock.patch.object(script, "SentenceTransformer",
+                               side_effect=lambda *a, **k: (events.append("model") or model)), \
+             mock.patch.object(script, "load_faiss",
+                               side_effect=lambda: events.append("faiss")), \
+             mock.patch.object(script, "discover_units", return_value=[]), \
+             mock.patch("sys.argv", ["worker", "--mode", "general"]):
+            script.main()
+        self.assertEqual(events, [])
+
+        with mock.patch.object(script, "torch", fake_torch), \
+             mock.patch.object(script, "SentenceTransformer",
+                               side_effect=lambda *a, **k: (events.append("model") or model)), \
+             mock.patch.object(script, "load_faiss",
+                               side_effect=lambda: events.append("faiss")), \
+             mock.patch.object(script, "discover_units", return_value=[
+                 script.IndexingUnit("general_corpus", script.chunk_name(0))]), \
+             mock.patch.object(script, "process_unit"), \
+             mock.patch("sys.argv", ["worker", "--worker-unit",
+                                     script.chunk_name(0)]):
+            script.main()
+        self.assertEqual(events, ["model", "faiss"])
 
     def rewrite(self, block, change):
         path = self.path(block)
@@ -218,24 +269,18 @@ class CheckpointTests(unittest.TestCase):
                     self.assertEqual(list(self.directory.glob("*.tmp")), [])
 
     def test_cli_range_and_chunk004_behavior(self):
-        fake_torch = types.SimpleNamespace(
-            backends=types.SimpleNamespace(mps=types.SimpleNamespace(is_available=lambda: True))
-        )
-        model = mock.Mock(device="mps")
-        model.get_sentence_embedding_dimension.return_value = 1024
-        with mock.patch.object(script, "torch", fake_torch), \
-             mock.patch.object(script, "SentenceTransformer", return_value=model), \
-             mock.patch.object(script, "discover_units", return_value=[
+        with mock.patch.object(script, "discover_units", return_value=[
                  script.IndexingUnit("general_corpus", script.chunk_name(i)) for i in (3, 4, 5)
              ]), \
-             mock.patch.object(script, "process_unit") as process:
+             mock.patch.object(script, "supervise_units", return_value=0) as supervise:
             for extra, expected in (([], [3, 5]), (["--include-004"], [3, 4, 5])):
                 with self.subTest(extra=extra), mock.patch(
                     "sys.argv", ["reindex_1024_mac.py", "--start", "3", "--end", "5"] + extra
                 ):
-                    process.reset_mock()
+                    supervise.reset_mock()
                     script.main()
-                    self.assertEqual([call.kwargs["unit"].name for call in process.call_args_list],
+                    units = supervise.call_args.args[0]
+                    self.assertEqual([unit.name for unit in units],
                                      [script.chunk_name(i) for i in expected])
 
 

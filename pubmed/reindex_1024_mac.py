@@ -17,18 +17,18 @@ import json
 import os
 import random
 import re
+import signal
 import shutil
+import subprocess
+import sys
 import tempfile
 import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 
-import faiss
 import numpy as np
-import torch
 from huggingface_hub import HfApi, hf_hub_download
-from sentence_transformers import SentenceTransformer
 
 
 MODEL_NAME = "mixedbread-ai/mxbai-embed-large-v1"
@@ -48,6 +48,41 @@ HF_SOURCE_PREFIX = "general_corpus"
 ARTIFACT_NAMES = ("index.faiss", "pmid_map.json", "metadata.json")
 
 DEFAULT_DATA_ROOT = Path("/Users/manishkumar/omnibioai-data/PubMed")
+
+# The supervisor intentionally stays free of PyTorch/MPS state. Each exact-unit
+# worker imports this runtime afresh.
+torch = None
+SentenceTransformer = None
+
+
+def load_mps_runtime():
+    global torch, SentenceTransformer
+    if torch is None:
+        import torch as torch_module
+
+        torch = torch_module
+    if SentenceTransformer is None:
+        from sentence_transformers import SentenceTransformer as transformer_class
+
+        SentenceTransformer = transformer_class
+    return torch, SentenceTransformer
+
+
+# FAISS loads native BLAS/OpenMP libraries.  On macOS, loading those libraries
+# before PyTorch has initialized MPS can crash during SentenceTransformer's
+# model construction.  Keep this name patchable for the offline tests, but do
+# not load the native module until after the MPS model is ready (see main()).
+faiss = None
+
+
+def load_faiss():
+    """Load FAISS after the MPS embedding model has initialized."""
+    global faiss
+    if faiss is None:
+        import faiss as faiss_module
+
+        faiss = faiss_module
+    return faiss
 
 
 def configure_data_root(data_root=None):
@@ -242,13 +277,14 @@ def embed_with_checkpoints(model, chunk, texts, pmids):
         pending.append((block, start, stop, path, expected))
 
     for block, start, stop, path, expected in pending:
-        rate = new_rows / new_seconds if new_seconds else (
+        cumulative_rate = new_rows / new_seconds if new_seconds else (
             completed / embed_seconds if embed_seconds else 0.0
         )
-        eta = f"{(total - completed) / rate / 3600:.2f} h" if rate else "unknown"
+        eta = (f"{(total - completed) / cumulative_rate / 3600:.2f} h"
+               if cumulative_rate else "unknown")
         log(f"{chunk}: block {block}/{blocks} embedding rows {start:,}:{stop:,}; "
             f"completed={completed:,}/{total:,} ({completed / total:.2%}); "
-            f"throughput={rate:.2f} abs/sec; ETA={eta}")
+            f"cumulative throughput={cumulative_rate:.2f} abs/sec; ETA={eta}")
         started = time.perf_counter()
         vectors = model.encode(
             texts[start:stop],
@@ -267,11 +303,13 @@ def embed_with_checkpoints(model, chunk, texts, pmids):
         embed_seconds += seconds
         new_rows += stop - start
         new_seconds += time.perf_counter() - started
-        rate = new_rows / new_seconds
+        block_rate = (stop - start) / seconds
+        cumulative_rate = completed / embed_seconds
         log(f"{chunk}: block {block}/{blocks} checkpoint committed; "
             f"completed={completed:,}/{total:,} ({completed / total:.2%}); "
-            f"throughput={rate:.2f} abs/sec; "
-            f"ETA={(total - completed) / rate / 3600:.2f} h")
+            f"block throughput={block_rate:.2f} abs/sec; "
+            f"cumulative throughput={cumulative_rate:.2f} abs/sec; "
+            f"ETA={(total - completed) / cumulative_rate / 3600:.2f} h")
 
     # Preserve timing metadata across resumes by summing committed block times.
     return embeddings, embed_seconds
@@ -1030,7 +1068,8 @@ def _process_unit(model, api, unit, manifest):
         embeddings
     )
 
-    index = faiss.IndexFlatIP(
+    faiss_module = load_faiss()
+    index = faiss_module.IndexFlatIP(
         DIMENSION
     )
 
@@ -1089,7 +1128,7 @@ def _process_unit(model, api, unit, manifest):
         / "metadata.json"
     )
 
-    faiss.write_index(
+    faiss_module.write_index(
         index,
         str(index_file),
     )
@@ -1165,7 +1204,7 @@ def _process_unit(model, api, unit, manifest):
     # Release the first full index before allocating its validation reload.
     del index
     reload_index = (
-        faiss.read_index(
+        faiss_module.read_index(
             str(index_file)
         )
     )
@@ -1236,8 +1275,7 @@ def _process_unit(model, api, unit, manifest):
     torch.mps.empty_cache()
 
 
-def main():
-
+def argument_parser():
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "--data-root", type=Path, default=None,
@@ -1274,8 +1312,32 @@ def main():
             "instead of skipping it"
         ),
     )
+    operation = parser.add_mutually_exclusive_group()
+    operation.add_argument(
+        "--dry-run", action="store_true",
+        help="Discover selected units and check remote completion without starting workers",
+    )
+    operation.add_argument(
+        "--status", action="store_true",
+        help="Show local manifest and remote completion status without starting workers",
+    )
+    parser.add_argument("--worker-unit", help=argparse.SUPPRESS)
+    return parser
 
-    args = parser.parse_args()
+
+def selected_mode(args, parser):
+    if args.worker_unit:
+        if args.worker_unit.startswith("domains/"):
+            name = args.worker_unit.removeprefix("domains/")
+            if not name:
+                parser.error("invalid internal worker unit")
+            return "domains", None, None, name
+        match = re.fullmatch(r"_general_corpus_chunk(\d{3,})", args.worker_unit)
+        if not match:
+            parser.error("invalid internal worker unit")
+        number = int(match.group(1))
+        return "general", number, number, None
+
     mode = args.mode or (
         "domains" if args.domain else
         "general" if args.start is not None or args.end is not None else "all"
@@ -1290,154 +1352,168 @@ def main():
         parser.error("--end must be >= 0")
     if args.start is not None and args.end is not None and args.end < args.start:
         parser.error("--end must be >= --start")
+    return mode, args.start, args.end, args.domain
+
+
+def eligible_units(units, include_004):
+    selected = []
+    for unit in units:
+        if (unit.kind == "general_corpus" and unit.name == chunk_name(4)
+                and not include_004):
+            log("chunk004 skipped (existing benchmark PASS; use --include-004 to verify/migrate)")
+            continue
+        selected.append(unit)
+    return selected
+
+
+def report_unit_status(api, units, show_manifest=False):
+    manifest = load_manifest() if show_manifest else {"shards": {}}
+    complete = 0
+    for number, unit in enumerate(units, start=1):
+        remote = remote_completed_unit(api, unit)
+        remote_status = "COMPLETE" if remote is not None else "PENDING"
+        local_status = manifest["shards"].get(unit.key, {}).get("status", "UNKNOWN")
+        suffix = f"; local={local_status}" if show_manifest else ""
+        log(f"STATUS unit {number}/{len(units)}: {unit.key}; remote={remote_status}{suffix}")
+        complete += remote is not None
+    log(f"STATUS summary: remote complete={complete}/{len(units)}; "
+        f"remaining={len(units) - complete}")
+
+
+def worker_command(unit):
+    return [
+        sys.executable,
+        "-X",
+        "faulthandler",
+        str(Path(__file__).resolve()),
+        "--data-root",
+        str(DATA_ROOT),
+        "--worker-unit",
+        unit.key,
+    ]
+
+
+def record_supervisor_result(unit, status, exit_code=None):
+    manifest = load_manifest()
+    state = manifest["shards"].setdefault(unit.key, {})
+    state["supervisor_status"] = status
+    state["supervisor_updated_at"] = now()
+    if exit_code is not None:
+        state["supervisor_exit_code"] = exit_code
+    save_manifest(manifest)
+
+
+def worker_completion_recorded(unit):
+    state = load_manifest()["shards"].get(unit.key, {})
+    return (
+        state.get("status") == "UPLOADED"
+        and state.get("hf_path") == unit.remote_path
+        and set(state.get("remote_artifacts", {})) == set(ARTIFACT_NAMES)
+    )
+
+
+def supervise_units(units):
+    total = len(units)
+    for number, unit in enumerate(units, start=1):
+        log(f"SUPERVISOR unit {number}/{total} starting: {unit.key}")
+        started = time.perf_counter()
+        child = subprocess.Popen(worker_command(unit))
+        try:
+            exit_code = child.wait()
+        except KeyboardInterrupt:
+            log(f"SUPERVISOR interrupted during unit {number}/{total}: {unit.key}")
+            if child.poll() is None:
+                try:
+                    # A terminal Ctrl+C normally reaches both parent and child.
+                    # Give the worker time to persist INTERRUPTED before sending
+                    # a signal ourselves for programmatic/isolated interrupts.
+                    child.wait(timeout=30)
+                except subprocess.TimeoutExpired:
+                    child.send_signal(signal.SIGINT)
+                    try:
+                        child.wait(timeout=30)
+                    except subprocess.TimeoutExpired:
+                        child.terminate()
+                        child.wait()
+            record_supervisor_result(unit, "INTERRUPTED", child.returncode)
+            return 130
+        if exit_code != 0:
+            record_supervisor_result(unit, "FAILED", exit_code)
+            log(f"SUPERVISOR unit {number}/{total} FAILED: {unit.key}; "
+                f"exit={exit_code}; stopping migration")
+            return exit_code
+        if not worker_completion_recorded(unit):
+            record_supervisor_result(unit, "FAILED", 1)
+            log(f"SUPERVISOR unit {number}/{total} FAILED: {unit.key}; "
+                "worker exited 0 without a complete UPLOADED receipt; stopping migration")
+            return 1
+        elapsed = time.perf_counter() - started
+        record_supervisor_result(unit, "COMPLETE", 0)
+        log(f"SUPERVISOR unit {number}/{total} complete: {unit.key}; "
+            f"elapsed={elapsed / 3600:.2f} h")
+    log(f"SUPERVISOR migration complete: {total}/{total} units")
+    return 0
+
+
+def run_worker(unit, api):
+    manifest = load_manifest()
+    chunk = unit.key
+    try:
+        torch_module, transformer_class = load_mps_runtime()
+        if not torch_module.backends.mps.is_available():
+            raise RuntimeError("MPS is unavailable")
+        log("Loading embedding model")
+        model = transformer_class(MODEL_NAME, device=DEVICE)
+        model_dimension = model.get_sentence_embedding_dimension()
+        if model_dimension != DIMENSION:
+            raise RuntimeError(f"Model dimension {model_dimension} != {DIMENSION}")
+        log(f"Model ready: device={model.device}, dimension={model_dimension}")
+
+        # Preserve the macOS stability boundary: MPS must be initialized first.
+        load_faiss()
+        process_unit(model=model, api=api, unit=unit, manifest=manifest)
+    except KeyboardInterrupt:
+        log(f"{chunk}: INTERRUPTED")
+        manifest["shards"].setdefault(chunk, {})["status"] = "INTERRUPTED"
+        save_manifest(manifest)
+        raise
+    except Exception as exc:
+        log(f"{chunk}: FAILED: {exc}")
+        state = manifest["shards"].setdefault(chunk, {})
+        state.update({"status": "FAILED", "error": str(exc), "failed_at": now()})
+        save_manifest(manifest)
+        raise
+    log(f"WORKER unit complete: {unit.key}")
+
+
+def main():
+    parser = argument_parser()
+    args = parser.parse_args()
+    mode, start, end, domain = selected_mode(args, parser)
 
     configure_data_root(args.data_root)
-
-    OUTPUT_ROOT.mkdir(
-        parents=True,
-        exist_ok=True,
-    )
-
-    if not (
-        torch.backends.mps
-        .is_available()
-    ):
-        raise SystemExit(
-            "MPS is unavailable"
-        )
-
-    manifest = (
-        load_manifest()
-    )
-
+    OUTPUT_ROOT.mkdir(parents=True, exist_ok=True)
     log(f"PubMed data root: {DATA_ROOT}")
     api = HfApi()
-    units = discover_units(api, mode, args.start, args.end, args.domain)
+    units = discover_units(api, mode, start, end, domain)
+    if args.worker_unit:
+        units = [unit for unit in units if unit.key == args.worker_unit]
+        if len(units) != 1:
+            raise RuntimeError(f"Exact worker unit not found: {args.worker_unit}")
+        run_worker(units[0], api)
+        return
+
+    units = eligible_units(units, args.include_004)
     if not units:
         log("No source units found within requested filters")
         return
+    if args.dry_run or args.status:
+        report_unit_status(api, units, show_manifest=args.status)
+        return
 
-    log(
-        "Loading embedding model"
-    )
-
-    model = SentenceTransformer(
-        MODEL_NAME,
-        device=DEVICE,
-    )
-
-    model_dimension = (
-        model.get_sentence_embedding_dimension()
-    )
-
-    if (
-        model_dimension
-        != DIMENSION
-    ):
-        raise SystemExit(
-            f"Model dimension "
-            f"{model_dimension} "
-            f"!= {DIMENSION}"
-        )
-
-    log(
-        f"Model ready: "
-        f"device={model.device}, "
-        f"dimension="
-        f"{model_dimension}"
-    )
-
-    for unit in units:
-
-        if (
-            unit.kind == "general_corpus"
-            and unit.name == chunk_name(4)
-            and not args.include_004
-        ):
-            log(
-                "chunk004 skipped "
-                "(existing benchmark PASS)"
-            )
-            continue
-
-        chunk = unit.key
-
-        try:
-            process_unit(
-                model=model,
-                api=api,
-                unit=unit,
-                manifest=manifest,
-            )
-
-        except KeyboardInterrupt:
-            log(
-                f"{chunk}: "
-                f"INTERRUPTED"
-            )
-
-            manifest[
-                "shards"
-            ].setdefault(
-                chunk,
-                {},
-            )
-
-            manifest[
-                "shards"
-            ][chunk][
-                "status"
-            ] = "INTERRUPTED"
-
-            save_manifest(
-                manifest
-            )
-
-            raise
-
-        except Exception as exc:
-
-            log(
-                f"{chunk}: "
-                f"FAILED: {exc}"
-            )
-
-            manifest[
-                "shards"
-            ].setdefault(
-                chunk,
-                {},
-            )
-
-            manifest[
-                "shards"
-            ][chunk][
-                "status"
-            ] = "FAILED"
-
-            manifest[
-                "shards"
-            ][chunk][
-                "error"
-            ] = str(
-                exc
-            )
-
-            manifest[
-                "shards"
-            ][chunk][
-                "failed_at"
-            ] = now()
-
-            save_manifest(
-                manifest
-            )
-
-            raise
-
-    log(
-        "ALL REQUESTED INDEXING UNITS COMPLETE"
-    )
+    exit_code = supervise_units(units)
+    if exit_code:
+        raise SystemExit(exit_code)
 
 
 if __name__ == "__main__":

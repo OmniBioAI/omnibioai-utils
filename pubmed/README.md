@@ -103,9 +103,23 @@ The assembled embedding matrix is a disposable memory-mapped file and is rebuilt
 from blocks. Vector validation and FAISS insertion run in blocks, and the initial
 FAISS index is released before its validation reload. The model, source texts,
 and one FAISS index still require RAM. The existing 150 GiB minimum free-space
-check remains. Logs report disk space before/after each unit, embedding block,
-completed abstracts, percentage, throughput, and estimated embedding time left.
-Run one worker process per data root.
+check remains. Logs report disk space before/after each unit, block and cumulative
+embedding throughput, completed abstracts, percentage, and current-unit ETA.
+
+Normal CLI invocations are supervisors. The supervisor discovers the selected
+units, starts a fresh Python worker for exactly one unit, waits for its exit, and
+only starts the next unit after exit status 0. This prevents one PyTorch/MPS
+process from accumulating state across shards or domains; the supervisor itself
+does not import the PyTorch/SentenceTransformers runtime. Before continuing, it
+also requires the exact unit's persisted `UPLOADED` manifest receipt and all
+three remote artifact records. A nonzero exit or missing completion receipt is
+recorded and stops the migration. Ctrl+C is forwarded to the current worker, is
+recorded, and does not start another unit. Only one unit can accumulate transient
+source, checkpoint, and index data at a time.
+
+Inside each fresh worker, the MPS model is initialized and dimension-checked
+before FAISS is imported. This ordering is required on this Mac: eagerly loading
+FAISS before PyTorch/MPS caused a reproducible segmentation fault.
 
 ## Remote completion, upload verification, and cleanup
 
@@ -130,7 +144,7 @@ local work. Pre-existing user-owned sources are never deleted. The manifest and
 log remain as the local audit. Cleanup errors are logged; recovery only removes
 leftovers when ownership and the verified artifact identity can be established.
 
-## CLI examples
+## Production commands
 
 These examples use absolute script and interpreter paths and can be run from any
 directory. The interpreter below is the existing Mac environment used for the
@@ -138,6 +152,46 @@ focused tests. Under pyenv, the bare `python3` command may select a different
 environment after changing directories. You may substitute another activated
 environment with the required dependencies. Indexing commands include upload and
 cleanup after successful verification.
+
+Read-only discovery and remote-completion check for the complete migration:
+
+```bash
+/Users/manishkumar/.pyenv/versions/3.12.0/bin/python3 \
+  /Users/manishkumar/Desktop/machine/omnibioai-utils/pubmed/reindex_1024_mac.py \
+  --mode all --include-004 --dry-run
+```
+
+This performs source discovery and small remote metadata checks. It does not
+load the embedding model, download source archives, start workers, upload, or
+delete anything.
+
+Run all dynamically discovered general-corpus units. Already complete 1024-D
+units, including chunk000, are safely detected by their exact worker and skipped:
+
+```bash
+/Users/manishkumar/.pyenv/versions/3.12.0/bin/python3 \
+  /Users/manishkumar/Desktop/machine/omnibioai-utils/pubmed/reindex_1024_mac.py \
+  --mode general --include-004
+```
+
+Run all dynamically discovered domains:
+
+```bash
+/Users/manishkumar/.pyenv/versions/3.12.0/bin/python3 \
+  /Users/manishkumar/Desktop/machine/omnibioai-utils/pubmed/reindex_1024_mac.py \
+  --mode domains
+```
+
+Run the complete general-corpus and domain migration:
+
+```bash
+/Users/manishkumar/.pyenv/versions/3.12.0/bin/python3 \
+  /Users/manishkumar/Desktop/machine/omnibioai-utils/pubmed/reindex_1024_mac.py \
+  --mode all --include-004
+```
+
+`--include-004` is intentional for a complete migration. Without it, the
+historical chunk004 benchmark exception remains skipped before a worker starts.
 
 One general shard, including chunk000:
 
@@ -179,9 +233,33 @@ With no filters, the default is `all`. `--domain NAME` alone selects domains;
 explicit `--mode all`, range bounds limit only general shards, and `--domain`
 limits only domains. Domain names are exact and case-sensitive.
 
-To exercise recovery, interrupt after a `checkpoint committed` log and rerun the
-same one-unit command. Look for `checkpoint reused`. A remotely completed unit
-will instead skip source download and indexing.
+To resume after Ctrl+C, process termination, reboot, source-transfer failure, or
+upload failure, rerun the exact same supervisor command with the same data root.
+The supervisor rediscovers the units. Remotely complete units safely exit through
+the remote-completion path; the interrupted unit reuses valid `checkpoint
+reused` blocks and worker-owned downloads. Failed uploads reuse the completed
+embeddings and local index material. Incompatible source or model checkpoint
+metadata fails closed for manual review.
+
+Show current local manifest status together with verified remote completion:
+
+```bash
+/Users/manishkumar/.pyenv/versions/3.12.0/bin/python3 \
+  /Users/manishkumar/Desktop/machine/omnibioai-utils/pubmed/reindex_1024_mac.py \
+  --mode all --include-004 --status
+```
+
+Follow live progress from another terminal:
+
+```bash
+tail -f /Users/manishkumar/omnibioai-data/PubMed/reindex_1024_mac.log
+```
+
+Supervisor log lines identify `unit N/total`; worker lines identify the current
+10,000-document block, completed documents, block throughput, cumulative
+throughput, and current-unit ETA. An overall time ETA is deliberately omitted
+because domain sizes are unknown until their sources are loaded and unit runtimes
+vary enough to make an early estimate misleading.
 
 ## Mac environment and focused tests
 
