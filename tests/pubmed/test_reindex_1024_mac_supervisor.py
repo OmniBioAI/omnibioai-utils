@@ -1,4 +1,7 @@
-"""Offline tests for the one-fresh-process-per-unit supervisor."""
+"""Offline tests for the one-fresh-process-per-unit supervisor.
+
+Developer: Manish Kumar <manish@omnibioai.org>
+"""
 import json
 import signal
 import types
@@ -12,6 +15,10 @@ script = checkpoints.script
 
 
 class SupervisorTests(unittest.TestCase):
+    """Verify supervise_units launches one fresh worker process per unit,
+    stops and records outcomes on failure or interruption, and that
+    run_worker/report_unit_status behave correctly around it."""
+
     def setUp(self):
         checkpoints.CheckpointTests.setUp(self)
         self.units = [
@@ -27,6 +34,8 @@ class SupervisorTests(unittest.TestCase):
         return child
 
     def test_worker_command_selects_exactly_one_unit_and_preserves_data_root(self):
+        """Build a worker subprocess command that targets exactly one unit
+        and forwards the current data root."""
         command = script.worker_command(self.units[1])
         self.assertEqual(command[:3], [script.sys.executable, "-X", "faulthandler"])
         self.assertEqual(command[3], str(script.Path(script.__file__).resolve()))
@@ -35,6 +44,8 @@ class SupervisorTests(unittest.TestCase):
         ])
 
     def test_supervisor_waits_for_each_fresh_worker(self):
+        """Spawn and wait on one fresh worker process per unit in order,
+        recording COMPLETE for each successful exit."""
         children = [self.child(), self.child(), self.child()]
         with mock.patch.object(script.subprocess, "Popen", side_effect=children) as popen, \
              mock.patch.object(script, "worker_completion_recorded", return_value=True), \
@@ -48,6 +59,8 @@ class SupervisorTests(unittest.TestCase):
                          [("COMPLETE", 0)] * 3)
 
     def test_nonzero_worker_stops_migration_and_is_recorded(self):
+        """Stop launching further units after a worker exits non-zero, and
+        record that unit as FAILED with its exit code."""
         children = [self.child(), self.child(7)]
         with mock.patch.object(script.subprocess, "Popen", side_effect=children) as popen, \
              mock.patch.object(script, "worker_completion_recorded", return_value=True), \
@@ -60,6 +73,8 @@ class SupervisorTests(unittest.TestCase):
         ])
 
     def test_zero_exit_without_uploaded_receipt_stops_migration(self):
+        """Treat a zero exit code as a failure and stop the migration when
+        the worker's completion is not actually recorded as uploaded."""
         with mock.patch.object(script.subprocess, "Popen", return_value=self.child()) as popen, \
              mock.patch.object(script, "worker_completion_recorded", return_value=False), \
              mock.patch.object(script, "record_supervisor_result") as record:
@@ -68,6 +83,8 @@ class SupervisorTests(unittest.TestCase):
         record.assert_called_once_with(self.units[0], "FAILED", 1)
 
     def test_ctrl_c_interrupts_current_worker_and_never_starts_next(self):
+        """Forward SIGINT to the running worker on KeyboardInterrupt, record
+        it as INTERRUPTED, and never start the next unit."""
         child = self.child(130)
         child.wait.side_effect = [
             KeyboardInterrupt(),
@@ -83,6 +100,8 @@ class SupervisorTests(unittest.TestCase):
         record.assert_called_once_with(self.units[0], "INTERRUPTED", 130)
 
     def test_model_initialization_failure_is_persisted_without_loading_faiss(self):
+        """Persist a FAILED manifest entry with the error message when model
+        initialization raises, without ever loading faiss."""
         fake_torch = types.SimpleNamespace(
             backends=types.SimpleNamespace(mps=types.SimpleNamespace(is_available=lambda: True))
         )
@@ -97,6 +116,8 @@ class SupervisorTests(unittest.TestCase):
         self.assertEqual(saved["error"], "model failed")
 
     def test_status_checks_remote_without_starting_worker(self):
+        """Report each unit's remote-vs-local status and remaining count
+        without starting a worker process."""
         with mock.patch.object(script, "remote_completed_unit",
                                side_effect=[{"metadata": {}}, None]), \
              mock.patch.object(script, "load_manifest", return_value={
@@ -111,6 +132,8 @@ class SupervisorTests(unittest.TestCase):
         self.assertTrue(any("remaining=1" in message for message in messages))
 
     def test_dry_run_cli_never_initializes_model_or_starts_worker(self):
+        """Run main() with --dry-run without loading the embedding model or
+        spawning any worker subprocess."""
         with mock.patch.object(script, "discover_units", return_value=self.units), \
              mock.patch.object(script, "remote_completed_unit", return_value=None), \
              mock.patch.object(script, "SentenceTransformer") as model, \

@@ -1,3 +1,9 @@
+"""End-to-end tests for the repository-maintenance shell scripts, run as
+real bash subprocesses against temporary git repositories and directory
+trees rather than mocked.
+
+Developer: Manish Kumar <manish@omnibioai.org>
+"""
 import json
 import os
 import shutil
@@ -9,10 +15,13 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 def run_script(name, *args, input_text=None, cwd=None):
+    """Run a repository shell script as a subprocess and capture its result."""
     return subprocess.run(["bash", str(ROOT / name), *map(str, args)], cwd=cwd, input=input_text, text=True, capture_output=True)
 
 
 def test_check_unpushed_work_reports_clean_dirty_and_json(tmp_path):
+    """Report one dirty repo with an untracked file in both the JSON
+    output and the exit code."""
     repo = tmp_path / "omnibioai-demo"
     repo.mkdir()
     subprocess.run(["git", "init", "-q", str(repo)], check=True)
@@ -28,11 +37,16 @@ def test_check_unpushed_work_reports_clean_dirty_and_json(tmp_path):
 
 
 def test_check_unpushed_work_rejects_bad_root_and_unknown_option(tmp_path):
+    """Exit with status 2 for a nonexistent --root and for an unrecognized
+    CLI option."""
     assert run_script("check_unpushed_work.sh", "--root", tmp_path / "missing").returncode == 2
     assert run_script("check_unpushed_work.sh", "--not-an-option").returncode == 2
 
 
 def test_update_ghcr_refs_dry_run_and_apply_are_isolated(tmp_path):
+    """Leave the file untouched on a dry run, rewrite the GHCR namespace
+    and create a .bak backup on --apply, and report no matches in a
+    directory with nothing to rewrite."""
     target = tmp_path / "source.txt"
     target.write_text("ghcr.io/man4ish/tool\n")
     dry = run_script("update_ghcr_refs.sh", tmp_path, cwd=tmp_path)
@@ -52,6 +66,8 @@ def test_update_ghcr_refs_dry_run_and_apply_are_isolated(tmp_path):
 
 
 def test_update_ghcr_refs_generated_report_is_reprocessed_on_repeat_run(tmp_path):
+    """Detect and reprocess the script's own previously generated matches
+    report file on a second run instead of ignoring it."""
     target = tmp_path / "source.txt"
     target.write_text("ghcr.io/man4ish/tool\n")
     first = run_script("update_ghcr_refs.sh", tmp_path, cwd=tmp_path)
@@ -62,6 +78,9 @@ def test_update_ghcr_refs_generated_report_is_reprocessed_on_repeat_run(tmp_path
 
 
 def test_split_general_corpus_in_temp_copy(tmp_path):
+    """Split source files into fixed-size chunk directories, remove them
+    from the source directory, and use the portable find/path idioms
+    (no -printf, PWD-relative paths stripped) rather than GNU-only ones."""
     source = ROOT / "pubmed" / "split_general_corpus.sh"
     script = tmp_path / "split.sh"
     text = source.read_text().replace(

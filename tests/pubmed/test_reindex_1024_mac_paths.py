@@ -1,4 +1,7 @@
-"""Offline data-root and invocation-location tests for the relocated worker."""
+"""Offline data-root and invocation-location tests for the relocated worker.
+
+Developer: Manish Kumar <manish@omnibioai.org>
+"""
 import os
 import tempfile
 import types
@@ -12,6 +15,10 @@ script = checkpoints.script
 
 
 class DataRootTests(unittest.TestCase):
+    """Verify configure_data_root resolves DATA_ROOT (and derived paths) from
+    the CLI flag, environment variable, or Mac default, independent of the
+    process's working directory."""
+
     def setUp(self):
         temporary = tempfile.TemporaryDirectory()
         self.addCleanup(temporary.cleanup)
@@ -39,12 +46,17 @@ class DataRootTests(unittest.TestCase):
         self.assertEqual(unit.output_dir, expected / "Index/_reindex_1024_mac/domains/Cardiovascular")
 
     def test_default_root_is_independent_of_code_and_working_directory(self):
+        """Fall back to the Mac default data root when no environment or CLI
+        override is set, without creating the Index directory or depending
+        on the script's own location."""
         script.configure_data_root()
         self.assert_paths(Path("/Users/manishkumar/omnibioai-data/PubMed"))
         self.assertFalse((self.root / "Index").exists())
         self.assertEqual(Path(script.__file__).resolve().parent.name, "pubmed")
 
     def test_environment_root_is_expanded_and_resolved(self):
+        """Resolve OMNIBIOAI_PUBMED_ROOT relative to its literal value and
+        expand a leading `~` to the user's home directory."""
         os.environ["OMNIBIOAI_PUBMED_ROOT"] = str(self.root / "environment data")
         script.configure_data_root()
         self.assert_paths(self.root / "environment data")
@@ -54,6 +66,9 @@ class DataRootTests(unittest.TestCase):
         self.assert_paths(Path.home() / "pubmed-path-test")
 
     def test_explicit_root_overrides_environment_and_resolves_relative_input(self):
+        """Prefer an explicit configure_data_root() argument over the
+        environment variable, and keep that resolved root stable across a
+        later working-directory change."""
         os.environ["OMNIBIOAI_PUBMED_ROOT"] = str(self.root / "environment")
         script.configure_data_root("selected data")
         self.assert_paths(self.root / "selected data")
@@ -63,11 +78,16 @@ class DataRootTests(unittest.TestCase):
         self.assert_paths(self.root / "selected data")
 
     def test_empty_environment_uses_mac_default(self):
+        """Treat an empty OMNIBIOAI_PUBMED_ROOT value the same as an unset
+        one and fall back to the Mac default root."""
         os.environ["OMNIBIOAI_PUBMED_ROOT"] = ""
         script.configure_data_root()
         self.assert_paths(script.DEFAULT_DATA_ROOT)
 
     def test_cli_root_precedence_and_all_runtime_files_from_unrelated_cwd(self):
+        """Run main() with --data-root taking precedence over the
+        environment variable, writing the log/manifest under the resolved
+        root and discovering units without touching the model or hub."""
         environment_root = self.root / "environment"
         explicit_root = self.root / "cli data"
         os.environ["OMNIBIOAI_PUBMED_ROOT"] = str(environment_root)

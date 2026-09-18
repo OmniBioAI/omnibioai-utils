@@ -1,3 +1,10 @@
+"""Integration tests for the PubMed pipeline, reference-download, ClinVar
+data-prep, agent-eval, setup-project, and browser-automation utility
+scripts, exercised through their public functions with network,
+filesystem, and Playwright dependencies stubbed via monkeypatch.
+
+Developer: Manish Kumar <manish@omnibioai.org>
+"""
 import csv
 import gzip
 import importlib
@@ -19,6 +26,9 @@ def load(name):
 
 
 def test_create_new_chunks_helpers_and_chunking(tmp_path, monkeypatch):
+    """Find updated PMIDs by mtime, compute the next chunk number skipping
+    malformed directory names, and write updated abstracts into a new
+    chunk directory."""
     mod = load("pubmed.create_new_chunks")
     data = tmp_path / "data"
     domain = data / "topic"
@@ -51,6 +61,8 @@ def test_create_new_chunks_helpers_and_chunking(tmp_path, monkeypatch):
 
 
 def test_create_new_chunks_skips_bad_file_and_empty_run(tmp_path, monkeypatch):
+    """Return None with no updated PMIDs, and fall back to "unknown" as
+    the PMID for a file that fails to parse as JSON."""
     mod = load("pubmed.create_new_chunks")
     monkeypatch.setattr(mod, "DATA_DIR", tmp_path)
     monkeypatch.setattr(mod, "get_updated_pmids", lambda: [])
@@ -66,6 +78,8 @@ def test_create_new_chunks_skips_bad_file_and_empty_run(tmp_path, monkeypatch):
 
 
 def test_pubmed_state_and_file_filtering(tmp_path, monkeypatch):
+    """Round-trip sync state through load_state()/save_state() and filter
+    already-processed files out of get_new_files()."""
     mod = load("pubmed.sync_pubmed_updates")
     state_file = tmp_path / "state.json"
     monkeypatch.setattr(mod, "STATE_FILE", state_file)
@@ -79,6 +93,8 @@ def test_pubmed_state_and_file_filtering(tmp_path, monkeypatch):
 
 
 def test_pubmed_ftp_listing_and_download_paths(tmp_path, monkeypatch):
+    """List only .xml.gz update files from the FTP directory, reuse an
+    already-cached download, and stream a new one via HTTP."""
     mod = load("pubmed.sync_pubmed_updates")
 
     class FakeFTP:
@@ -105,6 +121,9 @@ def test_pubmed_ftp_listing_and_download_paths(tmp_path, monkeypatch):
 
 
 def test_pubmed_xml_parse_and_update(tmp_path, monkeypatch):
+    """Parse multi-part abstracts and MeSH terms from gzipped XML, skip an
+    unparseable archive, and update only genuinely new or changed
+    abstracts on disk."""
     mod = load("pubmed.sync_pubmed_updates")
     xml = """<PubmedArticleSet>
       <PubmedArticle><MedlineCitation><PMID>1</PMID><Article><ArticleTitle>Title</ArticleTitle>
@@ -133,6 +152,9 @@ def test_pubmed_xml_parse_and_update(tmp_path, monkeypatch):
 
 
 def test_pubmed_main_no_work_and_one_file_workflow(monkeypatch, tmp_path, capsys):
+    """Report already-up-to-date when there are no new files, and process
+    a single new file end to end, saving state and removing the
+    downloaded archive."""
     mod = load("pubmed.sync_pubmed_updates")
     monkeypatch.setattr(mod, "load_state", lambda: {"total_updated": 0, "total_new": 0, "files_processed": []})
     monkeypatch.setattr(mod, "get_all_update_files", lambda: [])
@@ -152,6 +174,9 @@ def test_pubmed_main_no_work_and_one_file_workflow(monkeypatch, tmp_path, capsys
 
 
 def test_reference_registry_helpers_and_download_branches(tmp_path, monkeypatch):
+    """Round-trip the registry through load/save, keep only the latest
+    registration per file, format human-readable sizes, and skip
+    downloads that are dry-run, already present, or that fail."""
     mod = load("download_references")
     registry_path = tmp_path / "nested" / "registry.json"
     assert mod.load_registry(registry_path) == {}
@@ -189,6 +214,8 @@ def test_reference_registry_helpers_and_download_branches(tmp_path, monkeypatch)
     "download_zebrafish_GRCz11", "download_drosophila_BDGP6", "download_yeast_R64",
 ])
 def test_reference_genome_methods_register_catalog_entries(tmp_path, monkeypatch, method_name):
+    """Register a genomes catalog entry with the file list and download
+    timestamp for each per-organism download method."""
     mod = load("download_references")
     dl = mod.ReferenceDownloader(tmp_path)
     batches = []
@@ -201,6 +228,9 @@ def test_reference_genome_methods_register_catalog_entries(tmp_path, monkeypatch
 
 
 def test_reference_annotation_variant_database_methods_and_status(tmp_path, monkeypatch, capsys):
+    """Register annotation/variant/database downloads under the correct
+    registry keys and directories, and report a present genome file in
+    print_status()."""
     mod = load("download_references")
     dl = mod.ReferenceDownloader(tmp_path)
     calls = []
@@ -224,6 +254,8 @@ def test_reference_annotation_variant_database_methods_and_status(tmp_path, monk
 
 
 def test_reference_cli_parser_and_main_dry_run(monkeypatch, capsys):
+    """Parse --species/--dry-run into the expected argument values, and
+    dispatch --status to print_status()."""
     mod = load("download_references")
     monkeypatch.setattr(sys, "argv", ["download_references.py", "--species", "human", "--dry-run"])
     args = mod.parse_args()
@@ -235,6 +267,8 @@ def test_reference_cli_parser_and_main_dry_run(monkeypatch, capsys):
 
 
 def test_reference_main_dry_run_dispatches_optional_sections(monkeypatch, tmp_path):
+    """Dispatch main() to the genome, annotation, variant, and database
+    download methods requested via --include-* flags, in order."""
     mod = load("download_references")
     monkeypatch.setattr(sys, "argv", ["download_references.py", "--base-dir", str(tmp_path), "--assemblies", "GRCh38", "--include-annotation", "--include-variants", "--include-databases", "--dry-run"])
     calls = []
@@ -245,6 +279,8 @@ def test_reference_main_dry_run_dispatches_optional_sections(monkeypatch, tmp_pa
 
 
 def test_reference_scaffold_resolve_and_mappings(tmp_path, capsys):
+    """Skip directory creation in dry-run mode but create it live, and
+    resolve species/assembly selections into the correct assembly list."""
     mod = load("download_references")
     dry = mod.ReferenceDownloader(tmp_path / "dry", dry_run=True)
     dry.scaffold_directories()
@@ -260,6 +296,9 @@ def test_reference_scaffold_resolve_and_mappings(tmp_path, capsys):
 
 
 def test_prepare_real_data_parsing_and_annotation_helpers(tmp_path, monkeypatch):
+    """Bucket ClinVar variants by pathogenicity from a VCF, convert to
+    HGVS notation, extract nested/scalar scores and GERP values, and
+    annotate variants via a mocked CADD call."""
     mod = load("prepare_real_data_facs")
     vcf = tmp_path / "small.vcf.gz"
     lines = [
@@ -294,6 +333,8 @@ def test_prepare_real_data_parsing_and_annotation_helpers(tmp_path, monkeypatch)
 
 
 def test_prepare_parser_discards_malformed_and_samples_repeated_variants(tmp_path):
+    """Discard header, too-short, and missing-CLNSIG lines while reservoir
+    sampling down to n_per_class Pathogenic variants."""
     mod = load("prepare_real_data_facs")
     vcf = tmp_path / "edge.vcf.gz"
     lines = [
@@ -312,6 +353,9 @@ def test_prepare_parser_discards_malformed_and_samples_repeated_variants(tmp_pat
 
 
 def test_prepare_download_cache_and_retry_failure(tmp_path, monkeypatch):
+    """Reuse an already-cached ClinVar file without re-downloading, and
+    return an empty annotation result after exhausting retries on a
+    failing CADD response."""
     mod = load("prepare_real_data_facs")
     cached = tmp_path / "cached.gz"
     cached.write_bytes(b"cache")
@@ -325,6 +369,8 @@ def test_prepare_download_cache_and_retry_failure(tmp_path, monkeypatch):
 
 
 def test_prepare_main_writes_csv_and_filters_missing_scores(tmp_path, monkeypatch):
+    """Write the output CSV with --drop-missing-scores excluding a row
+    that has a null score field."""
     mod = load("prepare_real_data_facs")
     row = {"chrom": "1", "pos": "1", "ref": "A", "alt": "T", "cadd": 1, "gnomad_af": 2, "gerp": 3, "phylop": 4, "sift": 5, "polyphen": 6, "pathogenicity": "Pathogenic"}
     monkeypatch.setattr(sys, "argv", ["prepare_real_data_facs.py", "--out-dir", str(tmp_path), "--n-per-class", "1", "--drop-missing-scores"])
@@ -339,6 +385,9 @@ def test_prepare_main_writes_csv_and_filters_missing_scores(tmp_path, monkeypatc
 
 
 def test_agent_eval_pure_helpers_and_http_branches(monkeypatch, tmp_path):
+    """Infer each backend key correctly, build tool text/required-args/
+    Ollama schema from a tool spec, compute cosine similarity, and parse
+    well-formed, malformed, and empty Ollama chat tool-call responses."""
     mod = load("agent_tool_selection_eval")
     for key, expected in [("slurm", "slurm"), ("http", "http"), ("aws_batch", "aws_batch"), ("gcp_batch", "gcp_batch"), ("azure_batch", "azure_batch"), ("kubernetes", "kubernetes"), ("none", "unknown")]:
         assert mod._infer_backend({key: {}}) == expected
@@ -366,6 +415,9 @@ def test_agent_eval_pure_helpers_and_http_branches(monkeypatch, tmp_path):
 
 
 def test_agent_corpus_loading_and_setup_api_wrappers(monkeypatch, tmp_path):
+    """Filter a YAML tool corpus by tag exclusion/inclusion, fall back to
+    the mock corpus when nothing is given, and exercise
+    setup_beta_project's GraphQL/REST wrapper and dry-run helpers."""
     mod = load("agent_tool_selection_eval")
     yaml = pytest.importorskip("yaml")
     yaml_path = tmp_path / "tools.yaml"
@@ -391,6 +443,8 @@ def test_agent_corpus_loading_and_setup_api_wrappers(monkeypatch, tmp_path):
 
 
 def test_setup_project_http_errors_rate_limits_and_dry_run_paths(monkeypatch, capsys):
+    """Create labels only on a 404 lookup, retry rate_limited_call on a
+    429, re-raise a 500 immediately, and give up after repeated 403s."""
     setup = load("setup_beta_project")
     response = Mock()
     response.json.return_value = {"data": {"viewer": {"id": "id", "login": "me"}}}
@@ -429,6 +483,8 @@ def test_setup_project_http_errors_rate_limits_and_dry_run_paths(monkeypatch, ca
 
 
 def test_agent_api_corpus_and_eval_loop(monkeypatch, tmp_path):
+    """Load tools from the TES API and from a YAML directory, then run the
+    evaluation loop and mark a correctly matched tool call."""
     mod = load("agent_tool_selection_eval")
     response = Mock()
     response.json.return_value = [{"tool_id": "a", "tags": ["slurm"]}, {"tool_id": "b", "tags": ["unverified"]}]
@@ -449,6 +505,8 @@ def test_agent_api_corpus_and_eval_loop(monkeypatch, tmp_path):
 
 
 def test_agent_main_writes_optional_output(monkeypatch, tmp_path):
+    """Write the --out JSON file with the expected result fields when
+    main() runs."""
     mod = load("agent_tool_selection_eval")
     output = tmp_path / "results.json"
     monkeypatch.setattr(sys, "argv", ["agent_tool_selection_eval.py", "--out", str(output)])
@@ -461,6 +519,8 @@ def test_agent_main_writes_optional_output(monkeypatch, tmp_path):
 
 
 def test_setup_main_dry_run_requires_no_network_or_write(tmp_path, monkeypatch, capsys):
+    """Complete main() in --dry-run mode without writing the --output
+    issues file."""
     setup = load("setup_beta_project")
     setup.GITHUB_TOKEN = "test-token"
     monkeypatch.setattr(sys, "argv", ["setup_beta_project.py", "--dry-run", "--output", str(tmp_path / "issues.json")])
@@ -474,6 +534,8 @@ def test_setup_main_dry_run_requires_no_network_or_write(tmp_path, monkeypatch, 
 
 
 def test_setup_live_issue_creation_and_linking(monkeypatch):
+    """Create a single issue, create all configured issues live, and link
+    an issue to the project board while tolerating a failing link."""
     setup = load("setup_beta_project")
     monkeypatch.setattr(setup, "time", SimpleNamespace(sleep=lambda _: None))
     monkeypatch.setattr(setup, "rate_limited_call", lambda fn, *args, **kwargs: {"number": 4, "node_id": "node", "html_url": "url"})
@@ -526,6 +588,9 @@ class _BrowserObject:
 
 
 def test_browser_helpers_and_success_paths(monkeypatch, tmp_path):
+    """Track the done log, find an open dialog only when visible, and
+    complete the deletion/visibility-change happy paths for both browser
+    scripts."""
     delete = load("delete_packages_browser")
     public = load("make_public_browser")
     for mod, log_name in [(delete, "delete.log"), (public, "public.log")]:
@@ -550,6 +615,8 @@ def test_browser_helpers_and_success_paths(monkeypatch, tmp_path):
     ("Your Packages", "https://github.com/users/o/packages", "page_not_found"),
 ])
 def test_delete_and_visibility_early_browser_results(title, url, expected):
+    """Return page_not_found early from both delete_package() and
+    set_package_visibility() for a not-found page title/URL."""
     delete = load("delete_packages_browser")
     page = _BrowserObject()
     page._title, page.url = title, url
@@ -561,6 +628,9 @@ def test_delete_and_visibility_early_browser_results(title, url, expected):
 
 
 def test_browser_error_fallbacks(monkeypatch):
+    """Return the matching failure code for each explicit delete_package()
+    failure point, and the matching set_package_visibility() outcome for
+    already-public and no-change-button cases."""
     delete = load("delete_packages_browser")
     public = load("make_public_browser")
     timeout = delete.PWTimeout("timeout")
@@ -593,6 +663,8 @@ def test_browser_error_fallbacks(monkeypatch):
 
 
 def test_public_candidate_loader_and_browser_cli_dry_runs(monkeypatch, tmp_path, capsys):
+    """Load only private candidates from the packages TSV, and run both
+    browser scripts' main() in their default (non-destructive) CLI mode."""
     public = load("make_public_browser")
     monkeypatch.setattr(public, "ORG_PACKAGES_FILE", str(tmp_path / "packages.tsv"))
     (tmp_path / "packages.tsv").write_text("a\tprivate\npublic\tpublic\ninvalid\nomnibioai-tes\tprivate\n")
@@ -623,6 +695,9 @@ def test_public_candidate_loader_and_browser_cli_dry_runs(monkeypatch, tmp_path,
 
 
 def test_browser_mains_live_error_and_revert_paths(monkeypatch, tmp_path, capsys):
+    """Retry a transient connection error, then report success/already-
+    public/failure counts across a --continue-on-fail run, and dispatch
+    delete_packages_browser's confirmed-delete failure reporting."""
     class Browser:
         def new_context(self, **kwargs): return self
         def new_page(self): return _BrowserObject()
@@ -665,6 +740,9 @@ def test_browser_mains_live_error_and_revert_paths(monkeypatch, tmp_path, capsys
 
 
 def test_remaining_error_and_cli_branches(monkeypatch, tmp_path):
+    """Propagate a ClinVar download URLError, handle score-extraction edge
+    values, skip a missing update file during chunk creation, and
+    propagate FTP/HTTP errors from the PubMed sync helpers."""
     prep = load("prepare_real_data_facs")
     monkeypatch.setattr(prep.urllib.request, "urlopen", Mock(side_effect=prep.URLError("offline")))
     with pytest.raises(prep.URLError): prep.download_clinvar(tmp_path / "x.gz", True)
@@ -686,6 +764,9 @@ def test_remaining_error_and_cli_branches(monkeypatch, tmp_path):
 
 
 def test_browser_fallback_controls_and_diagnostics(monkeypatch, capsys):
+    """Print DEBUG diagnostics even when screenshot/role/locator calls all
+    raise, and return the matching set_package_visibility() outcome for a
+    changed radio-fallback, missing radio, and missing textbox."""
     delete = load("delete_packages_browser")
     public = load("make_public_browser")
     timeout = delete.PWTimeout("timeout")
@@ -720,6 +801,9 @@ def test_browser_fallback_controls_and_diagnostics(monkeypatch, capsys):
 
 
 def test_agent_eval_edge_cases_and_reference_download_success(monkeypatch, tmp_path):
+    """Mark a malformed result when the expected tool is missing from the
+    corpus, exit on a missing YAML corpus, and record a successful
+    reference download."""
     agent = load("agent_tool_selection_eval")
     assert agent.cosine_sim(np.array([0., 0.]), np.array([1., 0.])) == 0.0
     monkeypatch.setattr(agent, "call_ollama_chat_with_tools", lambda *a: (None, 0.0, "raw"))
@@ -739,6 +823,9 @@ def test_agent_eval_edge_cases_and_reference_download_success(monkeypatch, tmp_p
 
 
 def test_setup_main_and_reference_cli_control_paths(monkeypatch, tmp_path, capsys):
+    """Complete --issues-only --dry-run for setup_beta_project, and
+    dispatch download_references' --scaffold path while requiring at
+    least one selection flag otherwise."""
     setup = load("setup_beta_project")
     setup.GITHUB_TOKEN = "token"
     monkeypatch.setattr(setup, "gql", lambda *a, **k: {"viewer": {"login": setup.OWNER, "id": "id"}})
@@ -758,6 +845,9 @@ def test_setup_main_and_reference_cli_control_paths(monkeypatch, tmp_path, capsy
 
 
 def test_prepare_download_parse_reservoir_and_empty_main(monkeypatch, tmp_path):
+    """Stream a fresh ClinVar download to a new nested path, exercise
+    reservoir-sampling replacement with a small reservoir, and exit
+    main() when both variant buckets come back empty."""
     prep = load("prepare_real_data_facs")
     class Response:
         def __init__(self): self.done = False
@@ -782,6 +872,8 @@ def test_prepare_download_parse_reservoir_and_empty_main(monkeypatch, tmp_path):
 
 
 def test_browser_login_and_missing_input_paths(monkeypatch, tmp_path, capsys):
+    """Save a session via do_login() and report no saved session when
+    main() is run without one, for both browser scripts."""
     for name in ["delete_packages_browser", "make_public_browser"]:
         mod = load(name)
         class Context:
@@ -805,6 +897,9 @@ def test_browser_login_and_missing_input_paths(monkeypatch, tmp_path, capsys):
 
 
 def test_small_remaining_branches(monkeypatch):
+    """Exercise setup_beta_project's error/dry-run helpers, a no-dialog
+    visibility change, a missing org packages file, and
+    agent_tool_selection_eval/download_references CLI edge branches."""
     setup = load("setup_beta_project")
     response = Mock(); response.json.return_value = {"errors": ["bad"]}
     monkeypatch.setattr(setup.requests, "post", Mock(return_value=response))

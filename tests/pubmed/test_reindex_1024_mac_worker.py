@@ -2,6 +2,8 @@
 
 No model downloads, source downloads from the network, or remote writes occur.
 Run from the repository root: python3 -m unittest discover -s tests/pubmed -v
+
+Developer: Manish Kumar <manish@omnibioai.org>
 """
 import gzip
 import hashlib
@@ -30,6 +32,10 @@ def record(pmid, text):
 
 
 class FakeHub:
+    """In-memory stand-in for the Hugging Face Hub API and file downloads,
+    modeling source/destination repos and optional upload/verification
+    failure modes without any network access."""
+
     def __init__(self):
         self.sources = {}
         self.destination = {}
@@ -108,6 +114,10 @@ class FakeHub:
 
 
 class WorkerTests(unittest.TestCase):
+    """Verify process_unit's end-to-end behavior: skip-on-remote-complete,
+    download/embed/upload, retention of local work on any failure, cleanup
+    only after a verified upload, and unit discovery/CLI dispatch."""
+
     def setUp(self):
         checkpoints.CheckpointTests.setUp(self)
         self.hub = FakeHub()
@@ -144,6 +154,8 @@ class WorkerTests(unittest.TestCase):
         self.assertTrue(unit.output_dir.is_dir())
 
     def test_remote_complete_skip_without_local_manifest_or_source(self):
+        """Skip embedding and downloading entirely when the remote already
+        holds a verified-complete unit, marking it UPLOADED locally."""
         self.hub.seed_complete(self.unit)
         model = FakeModel()
         self.run_unit(model)
@@ -159,6 +171,8 @@ class WorkerTests(unittest.TestCase):
         self.assertTrue(any("disk after unit" in m for m in messages))
 
     def test_source_download_and_cleanup_only_after_persisted_uploaded(self):
+        """Clean up checkpoints, downloaded source, and the output directory
+        only after the manifest has already persisted the UPLOADED status."""
         removed = []
         real_remove = shutil.rmtree
         def observe_remove(path, *args, **kwargs):
@@ -183,6 +197,9 @@ class WorkerTests(unittest.TestCase):
         self.assertEqual(self.manifest["shards"][self.unit.key]["self_retrieval"]["top1"], 1.0)
 
     def test_upload_failure_retains_everything_and_resume_reuses_checkpoints(self):
+        """Keep downloaded source and embedding checkpoints on an upload
+        failure, and fully reuse them (no re-download, no re-encode) on
+        retry."""
         self.hub.failure = "upload"
         with self.assertRaisesRegex(RuntimeError, "upload failure"):
             self.run_unit()
@@ -197,6 +214,9 @@ class WorkerTests(unittest.TestCase):
         self.assertFalse(self.downloaded().exists())
 
     def test_verification_failures_never_delete_local_work(self):
+        """Retain local work and keep the manifest at PASS (not UPLOADED)
+        when post-upload HF verification finds a missing file, hash
+        mismatch, or metadata mismatch."""
         for failure in ("missing", "hash", "metadata"):
             with self.subTest(failure=failure):
                 self.hub.destination.clear()
@@ -207,6 +227,9 @@ class WorkerTests(unittest.TestCase):
                 self.assertEqual(self.manifest["shards"][self.unit.key]["status"], "PASS")
 
     def test_manifest_failure_after_verified_upload_retains_then_recovers(self):
+        """Retain local work when persisting the UPLOADED manifest entry
+        fails, then recognize the already-verified upload and clean up on
+        the next run without re-uploading or re-encoding."""
         real_save = script.save_manifest
         def fail_uploaded(manifest):
             if manifest["shards"][self.unit.key]["status"] == "UPLOADED":
@@ -225,6 +248,9 @@ class WorkerTests(unittest.TestCase):
         self.assertFalse(self.checkpoints().exists())
 
     def test_real_manifest_fsync_failure_does_not_allow_cleanup(self):
+        """Leave the manifest at PASS and retain local work when the
+        os.fsync call inside a real save_manifest fails while persisting
+        the UPLOADED status."""
         real_save = script.save_manifest
         def fail_sync(manifest):
             if manifest["shards"][self.unit.key]["status"] == "UPLOADED":
@@ -240,6 +266,8 @@ class WorkerTests(unittest.TestCase):
         self.assertEqual(saved["shards"][self.unit.key]["status"], "PASS")
 
     def test_preexisting_local_source_never_deleted(self):
+        """Use a source directory that already exists on disk without
+        downloading it, and never delete those pre-existing files."""
         source = script.SOURCE_ROOT / self.unit.name
         source.mkdir(parents=True)
         for i in range(5):
@@ -252,6 +280,9 @@ class WorkerTests(unittest.TestCase):
         self.assertFalse(self.unit.output_dir.exists())
 
     def test_validation_failure_and_keyboard_interrupt_retain_source(self):
+        """Retain downloaded source and checkpoints when self-retrieval
+        validation fails or a keyboard interrupt lands mid-embedding, and
+        resume the interrupted unit correctly afterward."""
         with mock.patch.object(script, "self_retrieval_test", return_value={
             "queries": 5, "top1": 0.8, "top5": 1.0, "top10": 1.0,
         }):
@@ -273,6 +304,9 @@ class WorkerTests(unittest.TestCase):
         self.assertFalse(self.downloaded(unit).exists())
 
     def test_legacy_destinations_and_other_namespace_never_cause_skip(self):
+        """Ignore legacy-prefixed or wrong-corpus-type remote destinations
+        when checking for a completed unit, requiring an exact match under
+        the unit's own mxbai-1024 namespace."""
         for unit in (self.unit, script.IndexingUnit("domains", "Cardiovascular", ("Cardiovascular.jsonl.gz",))):
             with self.subTest(unit=unit.key):
                 self.hub.seed_complete(unit, prefix=f"legacy-768/{unit.name}")
@@ -286,6 +320,9 @@ class WorkerTests(unittest.TestCase):
                 self.assertTrue(all(p.startswith(unit.remote_path + "/") for p in requested))
 
     def test_domain_combines_sources_deduplicates_pmids_and_preserves_legacy(self):
+        """Combine a multi-file domain's source records, drop invalid or
+        duplicate PMIDs deterministically, and leave the unrelated legacy
+        destination prefix untouched."""
         unit = script.IndexingUnit("domains", "Cardiovascular", (
             "domains/Cardiovascular/part000.jsonl.gz", "domains/Cardiovascular/part001.jsonl.gz",
         ), "source-revision")
@@ -315,6 +352,9 @@ class WorkerTests(unittest.TestCase):
         self.assertIsNotNone(script.remote_completed_unit(self.hub.api, unit))
 
     def test_preexisting_nested_domain_source_is_deduplicated_and_retained(self):
+        """Deduplicate a PMID that appears in two nested source
+        subdirectories of a pre-existing domain source without deleting
+        either file."""
         unit = script.IndexingUnit("domains", "Cardiovascular", ("Cardiovascular.jsonl.gz",))
         source = script.SOURCE_ROOT.parent / unit.name
         (source / "part1").mkdir(parents=True)
@@ -329,6 +369,8 @@ class WorkerTests(unittest.TestCase):
         self.assertEqual(self.manifest["shards"][unit.key]["duplicate_pmids"], 1)
 
     def test_preexisting_split_domain_archives_never_downloaded_or_deleted(self):
+        """Use pre-existing multi-file domain source archives found directly
+        under the source root without downloading or deleting them."""
         unit = script.IndexingUnit("domains", "Split", ("Split_chunk000.jsonl.gz", "Split_chunk001.jsonl.gz"))
         root = script.SOURCE_ROOT.parent
         root.mkdir(parents=True, exist_ok=True)
@@ -339,6 +381,8 @@ class WorkerTests(unittest.TestCase):
         self.assertTrue(all((root / name).is_file() for name in unit.source_files))
 
     def test_domain_remote_complete_skip_uses_only_domain_namespace(self):
+        """Skip a completed domain unit using only its own namespace, and
+        no longer treat it as complete once its source-file set changes."""
         unit = script.IndexingUnit("domains", "Cardiovascular", ("Cardiovascular.jsonl.gz",))
         self.hub.seed_complete(unit)
         model = FakeModel()
@@ -351,6 +395,9 @@ class WorkerTests(unittest.TestCase):
         self.assertIsNone(script.remote_completed_unit(self.hub.api, changed))
 
     def test_local_uploaded_manifest_does_not_skip_missing_1024_destination(self):
+        """Re-embed and re-upload when the local manifest claims UPLOADED
+        but the 1024-D destination is missing on the remote (only a legacy
+        768-D one exists)."""
         self.manifest["shards"][self.unit.key] = {"status": "UPLOADED"}
         self.hub.seed_complete(self.unit, prefix=f"legacy-768/{self.unit.name}")
         model = FakeModel()
@@ -359,6 +406,9 @@ class WorkerTests(unittest.TestCase):
         self.hub.api.upload_folder.assert_called_once()
 
     def test_interrupted_multi_file_download_resumes_before_embedding(self):
+        """Leave a multi-file download unmarked ready and never start
+        embedding when interrupted partway through, then resume and
+        complete the download on the next run."""
         unit = script.IndexingUnit("domains", "Split", ("Split_part001.jsonl.gz", "Split_part002.jsonl.gz"))
         for i, name in enumerate(unit.source_files):
             self.hub.sources[name] = records_bytes([record(i, i)])
@@ -378,6 +428,9 @@ class WorkerTests(unittest.TestCase):
         self.assertEqual(model.calls, [["0", "1"]])
 
     def test_changed_domain_source_set_does_not_silently_reuse(self):
+        """Refuse to silently reuse a domain's checkpoint once its
+        source-file set changes, instead raising IncompatibleCheckpoint
+        while retaining the prior local work."""
         unit = script.IndexingUnit("domains", "Split", ("Split_part001.jsonl.gz",))
         self.hub.sources[unit.source_files[0]] = records_bytes([record(i, i) for i in range(5)])
         self.hub.failure = "upload"
@@ -389,6 +442,9 @@ class WorkerTests(unittest.TestCase):
         self.assert_retained(unit)
 
     def test_discovery_zero_beyond_105_flat_and_split_domains(self):
+        """Discover general-corpus chunks (including chunk 0 and beyond
+        105) and both flat and multi-file domain units, and filter them
+        correctly by mode, start/end, and explicit domain name."""
         self.hub.sources = dict.fromkeys([
             "general_corpus/_general_corpus_chunk000.jsonl.gz",
             "general_corpus/_general_corpus_chunk004.jsonl.gz",
@@ -416,6 +472,9 @@ class WorkerTests(unittest.TestCase):
         self.assertEqual([u.name for u in selected], ["Split"])
 
     def test_bad_remote_metadata_and_network_errors_are_not_completion(self):
+        """Refuse to treat a remote unit as complete when its metadata
+        disagrees on dimension, normalization, vector count, or status, and
+        propagate network errors instead of masking them as incomplete."""
         self.hub.seed_complete(self.unit)
         path = f"{self.unit.remote_path}/metadata.json"
         original = self.hub.destination[path]
@@ -430,6 +489,9 @@ class WorkerTests(unittest.TestCase):
         self.assertEqual(self.source_calls(), [])
 
     def test_remote_skip_manifest_failure_never_cleans_leftovers(self):
+        """Retain leftover local work when persisting a remote-skip manifest
+        update fails, even though the remote destination is already
+        complete."""
         self.hub.failure = "upload"
         with self.assertRaises(RuntimeError):
             self.run_unit()
@@ -441,6 +503,8 @@ class WorkerTests(unittest.TestCase):
         self.assert_retained()
 
     def test_repeated_remote_skip_never_deletes_different_local_work(self):
+        """Never delete retained local work across repeated remote-complete
+        skips, since local_artifacts_verified was never set by this run."""
         self.hub.failure = "upload"
         with self.assertRaises(RuntimeError):
             self.run_unit()
@@ -451,6 +515,8 @@ class WorkerTests(unittest.TestCase):
             self.assertFalse(self.manifest["shards"][self.unit.key]["local_artifacts_verified"])
 
     def test_cli_modes_default_all_and_single_domain(self):
+        """Dispatch main() to the correct discovered units for the default
+        all-units mode, a single --domain, and a --start/--end range."""
         with mock.patch.object(script, "HfApi", return_value=self.hub.api), \
              mock.patch.object(script, "supervise_units", return_value=0) as supervise:
             self.hub.sources["Cardiovascular.jsonl.gz"] = b"source"

@@ -1,6 +1,8 @@
 """Targeted tests closing the remaining coverage gaps left by
 tests/test_high_coverage.py - one test per still-uncovered branch, kept
 separate so each gap's rationale is easy to find and review independently.
+
+Developer: Manish Kumar <manish@omnibioai.org>
 """
 import importlib
 import sys
@@ -69,6 +71,8 @@ class FakePlaywright:
 # ── delete_packages_browser.py ────────────────────────────────────────────────
 
 def test_delete_find_open_dialog_count_exception_continues(monkeypatch):
+    """Skip a candidate dialog locator whose count() raises and keep
+    checking later candidates until a usable one is found."""
     d = load("delete_packages_browser")
     page = MagicMock()
     bad = MagicMock()
@@ -81,6 +85,7 @@ def test_delete_find_open_dialog_count_exception_continues(monkeypatch):
 
 
 def test_delete_find_open_dialog_returns_none_when_all_candidates_fail(monkeypatch):
+    """Return None when every candidate dialog locator raises on count()."""
     d = load("delete_packages_browser")
     page = MagicMock()
     bad = MagicMock()
@@ -90,6 +95,8 @@ def test_delete_find_open_dialog_returns_none_when_all_candidates_fail(monkeypat
 
 
 def test_delete_main_packages_file_missing(monkeypatch, tmp_path):
+    """Exit with SystemExit when the configured packages file does not
+    exist on disk."""
     d = load("delete_packages_browser")
     monkeypatch.setattr(d, "AUTH_STATE_FILE", str(tmp_path / "auth"))
     monkeypatch.setattr(d, "PACKAGES_FILE", str(tmp_path / "missing_packages"))
@@ -102,12 +109,15 @@ def test_delete_main_packages_file_missing(monkeypatch, tmp_path):
 # ── agent_tool_selection_eval.py ──────────────────────────────────────────────
 
 def test_agent_load_corpus_missing_tools_dir(tmp_path):
+    """Exit with SystemExit when the given tools directory does not exist."""
     a = load("agent_tool_selection_eval")
     with pytest.raises(SystemExit):
         a.load_corpus(None, str(tmp_path / "no_such_dir"), None, None, [], False)
 
 
 def test_agent_load_corpus_prefers_tes_api_url(monkeypatch):
+    """Load the tool corpus from the TES API URL when one is provided,
+    taking precedence over local file/directory sources."""
     a = load("agent_tool_selection_eval")
     monkeypatch.setattr(a, "load_corpus_from_api", lambda url, tags: [{"tool_id": "x"}])
     result = a.load_corpus(None, "unused-dir", None, "http://tes", [], False)
@@ -117,6 +127,8 @@ def test_agent_load_corpus_prefers_tes_api_url(monkeypatch):
 # ── download_references.py ────────────────────────────────────────────────────
 
 def test_download_only_flag_and_unknown_assembly(monkeypatch, tmp_path, capsys):
+    """Print the --only filter notice and an unknown-assembly warning
+    instead of raising when the assembly map has no matching entry."""
     d = load("download_references")
     monkeypatch.setattr(d, "ASSEMBLY_MAP", {})
     monkeypatch.setattr(
@@ -132,6 +144,8 @@ def test_download_only_flag_and_unknown_assembly(monkeypatch, tmp_path, capsys):
 # ── make_public_browser.py ────────────────────────────────────────────────────
 
 def test_make_public_blank_line_in_org_file_is_skipped(monkeypatch, tmp_path):
+    """Skip a blank line in the org packages file when loading private
+    candidate package names."""
     m = load("make_public_browser")
     monkeypatch.setattr(m, "ORG_PACKAGES_FILE", str(tmp_path / "org.txt"))
     (tmp_path / "org.txt").write_text("a\tprivate\n\nb\tpublic\n")
@@ -139,6 +153,8 @@ def test_make_public_blank_line_in_org_file_is_skipped(monkeypatch, tmp_path):
 
 
 def test_make_public_do_login(monkeypatch, tmp_path, capsys):
+    """Save a browser session and report success when do_login() completes
+    against a fake Playwright session."""
     m = load("make_public_browser")
     page = MagicMock()
     monkeypatch.setattr(m, "sync_playwright", lambda: FakePlaywright(page))
@@ -149,6 +165,8 @@ def test_make_public_do_login(monkeypatch, tmp_path, capsys):
 
 
 def test_make_public_debug_radio_exception_and_no_dialogs(monkeypatch, capsys):
+    """Report that no [role=dialog] element was found and tolerate a radio
+    button whose get_attribute() raises during debug dumping."""
     m = load("make_public_browser")
     page = MagicMock()
     page.url = "u"
@@ -165,6 +183,8 @@ def test_make_public_debug_radio_exception_and_no_dialogs(monkeypatch, capsys):
 
 
 def test_make_public_debug_dialog_inner_text_exception(monkeypatch, capsys):
+    """Report that a dialog could not be read when its inner_text() call
+    raises during debug dumping."""
     m = load("make_public_browser")
     page = MagicMock()
     page.url = "u"
@@ -181,6 +201,8 @@ def test_make_public_debug_dialog_inner_text_exception(monkeypatch, capsys):
 
 
 def test_make_public_find_open_dialog_count_exception_continues(monkeypatch):
+    """Skip a candidate dialog locator whose count() raises and keep
+    checking later candidates until a usable one is found."""
     m = load("make_public_browser")
     page = MagicMock()
     bad = MagicMock()
@@ -193,6 +215,7 @@ def test_make_public_find_open_dialog_count_exception_continues(monkeypatch):
 
 
 def test_make_public_find_open_dialog_returns_none_when_all_candidates_fail(monkeypatch):
+    """Return None when every candidate dialog locator raises on count()."""
     m = load("make_public_browser")
     page = MagicMock()
     bad = MagicMock()
@@ -202,6 +225,8 @@ def test_make_public_find_open_dialog_returns_none_when_all_candidates_fail(monk
 
 
 def test_make_public_revert_always_private_exception(monkeypatch, tmp_path, capsys):
+    """Report an error line instead of crashing when reverting an
+    always-private package raises during --revert-always-private."""
     m = load("make_public_browser")
     monkeypatch.setattr(m, "AUTH_STATE_FILE", str(tmp_path / "auth"))
     Path(m.AUTH_STATE_FILE).write_text("x")
@@ -214,6 +239,8 @@ def test_make_public_revert_always_private_exception(monkeypatch, tmp_path, caps
 
 
 def test_make_public_transient_retry_then_permanent_error(monkeypatch, tmp_path, capsys):
+    """Retry a package after a transient network hiccup until it succeeds,
+    and report a permanent failure for a package that never succeeds."""
     m = load("make_public_browser")
     monkeypatch.setattr(m, "AUTH_STATE_FILE", str(tmp_path / "auth"))
     Path(m.AUTH_STATE_FILE).write_text("x")
@@ -244,6 +271,9 @@ def test_make_public_transient_retry_then_permanent_error(monkeypatch, tmp_path,
 # ── prepare_real_data_facs.py ─────────────────────────────────────────────────
 
 def test_prepare_reservoir_sampling_replaces_existing_entry(tmp_path):
+    """Replace an already-sampled reservoir entry when the seeded random
+    draw selects a later variant, rather than always keeping the first
+    one seen."""
     p = load("prepare_real_data_facs")
     import gzip
     vcf = tmp_path / "x.vcf.gz"
@@ -262,11 +292,15 @@ def test_prepare_reservoir_sampling_replaces_existing_entry(tmp_path):
 
 
 def test_prepare_extract_gerp_scalar_value():
+    """Return a scalar GERP++ score as-is when it is not wrapped in a
+    list."""
     p = load("prepare_real_data_facs")
     assert p.extract_gerp({"dbnsfp": {"gerp++_rs": 3}}) == 3
 
 
 def test_prepare_main_exits_on_empty_bucket(monkeypatch, tmp_path):
+    """Exit with SystemExit when both the Pathogenic and Benign variant
+    buckets come back empty."""
     p = load("prepare_real_data_facs")
     monkeypatch.setattr(p, "download_clinvar", lambda *a, **k: None)
     monkeypatch.setattr(p, "parse_clinvar_variants", lambda *a, **k: {"Pathogenic": [], "Benign": []})
@@ -297,6 +331,8 @@ def _reindex_common_mocks(monkeypatch, r, inp, stage):
 
 
 def test_reindex_empty_batch_skipped_then_index_dimension_mismatch(monkeypatch, tmp_path):
+    """Skip a blank-text file's empty batch, then raise RuntimeError when
+    the rebuilt FAISS index dimension does not match the model's."""
     r = load("pubmed.reindex_one_shard")
     inp, stage = tmp_path / "in", tmp_path / "stage"
     inp.mkdir()
@@ -309,6 +345,8 @@ def test_reindex_empty_batch_skipped_then_index_dimension_mismatch(monkeypatch, 
 
 
 def test_reindex_ntotal_mismatch(monkeypatch, tmp_path):
+    """Raise RuntimeError when the FAISS index vector count does not match
+    the number of PMIDs written."""
     r = load("pubmed.reindex_one_shard")
     inp, stage = tmp_path / "in2", tmp_path / "stage2"
     inp.mkdir()
@@ -322,6 +360,8 @@ def test_reindex_ntotal_mismatch(monkeypatch, tmp_path):
 # ── pubmed/reindex_one_shard_ollama.py ───────────────────────────────────────────────
 
 def test_reindex_ollama_empty_batch_skipped_then_ntotal_mismatch(monkeypatch, tmp_path):
+    """Skip a blank-text file's empty batch, then raise RuntimeError when
+    the FAISS vector count and PMID count differ for the Ollama backend."""
     r = load("pubmed.reindex_one_shard_ollama")
     inp, stage = tmp_path / "in", tmp_path / "stage"
     inp.mkdir()
@@ -344,12 +384,16 @@ def test_reindex_ollama_empty_batch_skipped_then_ntotal_mismatch(monkeypatch, tm
 # ── setup_beta_project.py ─────────────────────────────────────────────────────
 
 def test_setup_link_issues_skips_missing_node_id(monkeypatch):
+    """Skip linking an issue to the project board when it has no node_id,
+    without ever calling the GraphQL mutation."""
     s = load("setup_beta_project")
     monkeypatch.setattr(s, "gql", Mock(side_effect=AssertionError("should not be called")))
     s.link_issues_to_project("proj", [{"repo": "r", "number": 1}], dry_run=False)
 
 
 def test_setup_main_warns_on_token_owner_mismatch(monkeypatch):
+    """Continue running main() and still complete when the authenticated
+    GitHub token's login differs from the configured project owner."""
     s = load("setup_beta_project")
     monkeypatch.setattr(s, "GITHUB_TOKEN", "tok")
     monkeypatch.setattr(s, "gql", lambda *a: {"viewer": {"id": "id", "login": "someone-else"}})
@@ -362,6 +406,8 @@ def test_setup_main_warns_on_token_owner_mismatch(monkeypatch):
 # ── pubmed/sync_pubmed_updates.py ────────────────────────────────────────────────────
 
 def test_sync_parse_xml_skips_article_missing_pmid(tmp_path):
+    """Skip an article with no PMID while still parsing the well-formed
+    article that follows it."""
     s = load("pubmed.sync_pubmed_updates")
     import gzip
     xml = (
