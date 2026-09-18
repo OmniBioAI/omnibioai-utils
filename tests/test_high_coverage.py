@@ -1,3 +1,10 @@
+"""High-coverage integration tests exercising the browser-automation,
+reference-download, agent-eval, and setup-project utility scripts end to
+end, with Playwright, network, and filesystem calls stubbed via
+monkeypatch.
+
+Developer: Manish Kumar <manish@omnibioai.org>
+"""
 import importlib
 import json
 import sys
@@ -30,6 +37,9 @@ class FakeLocator:
 
 
 def test_browser_helpers_and_delete_paths(monkeypatch, tmp_path):
+    """Track the done log across mark_done()/load_done_log() calls and
+    return the correct delete_package() outcome for a not-found page and
+    a missing delete button."""
     d = load("delete_packages_browser")
     monkeypatch.setattr(d, "LOG_FILE", str(tmp_path / "done.log"))
     assert d.load_done_log() == set()
@@ -50,6 +60,9 @@ def test_browser_helpers_and_delete_paths(monkeypatch, tmp_path):
 
 
 def test_browser_delete_confirmation_fallbacks(monkeypatch):
+    """Fall back to the scoped confirmation textbox and submit button when
+    the primary confirmation click paths time out, still completing the
+    deletion."""
     d = load("delete_packages_browser")
     page = MagicMock(); page.title.return_value = "Settings"; page.url = "/settings"
     button = page.get_by_role.return_value
@@ -63,6 +76,8 @@ def test_browser_delete_confirmation_fallbacks(monkeypatch):
 
 
 def test_delete_main_dry_run_abort_and_missing(monkeypatch, tmp_path, capsys):
+    """Exit when required files are missing, print a dry-run preview by
+    default, and abort deletion when the confirmation prompt is declined."""
     d = load("delete_packages_browser")
     monkeypatch.setattr(d, "AUTH_STATE_FILE", str(tmp_path / "auth"))
     monkeypatch.setattr(d, "PACKAGES_FILE", str(tmp_path / "packages"))
@@ -79,6 +94,8 @@ def test_delete_main_dry_run_abort_and_missing(monkeypatch, tmp_path, capsys):
 
 
 class FakePlaywright:
+    """Minimal `with sync_playwright() as p: ...` stand-in shared by the
+    browser-automation scripts' main()/do_login() flows."""
     def __init__(self, page): self.page = page
     def __enter__(self): return self
     def __exit__(self, *args): pass
@@ -98,6 +115,9 @@ class FakePlaywright:
 
 
 def test_public_helpers_and_visibility_paths(monkeypatch, tmp_path):
+    """Load only private candidate packages from the org file, track the
+    done log, and return the correct set_package_visibility() outcome for
+    a not-found page and an already-public package."""
     m = load("make_public_browser")
     monkeypatch.setattr(m, "ORG_PACKAGES_FILE", str(tmp_path / "org.txt"))
     (tmp_path / "org.txt").write_text("a\tprivate\nb\tpublic\nomnibioai-app\tprivate\nbad\n")
@@ -112,6 +132,8 @@ def test_public_helpers_and_visibility_paths(monkeypatch, tmp_path):
 
 
 def test_public_visibility_confirmation_and_main(monkeypatch, tmp_path, capsys):
+    """Fall back to the scoped confirmation radio when the primary submit
+    click times out, and print a summary when main() completes."""
     m = load("make_public_browser")
     page = MagicMock(); page.title.return_value = "Settings"; page.url = "/settings"
     page.get_by_text.return_value.count.return_value = 0
@@ -135,6 +157,8 @@ class FakeIndex:
 
 
 def test_reindex_cuda_success_and_validation(monkeypatch, tmp_path):
+    """Embed and index abstracts on a simulated CUDA device, writing a
+    PMID map and metadata whose vector count matches the input."""
     r = load("pubmed.reindex_one_shard")
     inp, stage = tmp_path / "in", tmp_path / "stage"; inp.mkdir()
     (inp / "1.txt").write_text("hello"); (inp / "2.txt").write_text(" ")
@@ -154,6 +178,8 @@ def test_reindex_cuda_success_and_validation(monkeypatch, tmp_path):
 
 
 def test_reindex_cuda_error_branches(monkeypatch, tmp_path):
+    """Raise RuntimeError when CUDA is unavailable, and again when the
+    input directory has no abstracts to embed."""
     r = load("pubmed.reindex_one_shard"); monkeypatch.setattr(r.torch.cuda, "is_available", lambda: False)
     with pytest.raises(RuntimeError, match="CUDA"): r.main()
     monkeypatch.setattr(r.torch.cuda, "is_available", lambda: True); empty = tmp_path / "empty"; empty.mkdir()
@@ -163,6 +189,9 @@ def test_reindex_cuda_error_branches(monkeypatch, tmp_path):
 
 
 def test_reindex_ollama_success_and_errors(monkeypatch, tmp_path):
+    """Embed and index abstracts via the Ollama backend on success, then
+    raise RuntimeError for an empty input directory and for an embedding
+    of unexpected dimension."""
     r = load("pubmed.reindex_one_shard_ollama"); inp, stage = tmp_path / "in", tmp_path / "stage"; inp.mkdir()
     (inp / "1.txt").write_text("hello"); (inp / "2.txt").write_text(" ")
     monkeypatch.setattr(r, "INPUT_DIR", inp); monkeypatch.setattr(r, "STAGING_DIR", stage)
@@ -176,6 +205,9 @@ def test_reindex_ollama_success_and_errors(monkeypatch, tmp_path):
     with pytest.raises(RuntimeError, match="Unexpected dimension"): r.main()
 
 def test_prepare_real_data_branches(monkeypatch, tmp_path):
+    """Exercise ClinVar download caching/streaming, variant parsing and
+    HGVS/score extraction helpers, and CADD annotation success/retry
+    paths."""
     p = load("prepare_real_data_facs")
     cached = tmp_path / "cached.gz"; cached.write_bytes(b"x")
     p.download_clinvar(cached, False)
@@ -204,6 +236,9 @@ def test_prepare_real_data_branches(monkeypatch, tmp_path):
 
 
 def test_agent_eval_remaining_paths(monkeypatch, tmp_path, capsys):
+    """Exit on a missing corpus with and without yaml installed, and
+    exercise cosine similarity, Ollama embedding/chat, and result
+    summary/output-writing helpers."""
     a = load("agent_tool_selection_eval")
     monkeypatch.setattr(a, "yaml", None)
     with pytest.raises(SystemExit): a.load_corpus(None, str(tmp_path / "missing"), None, None, [], False)
@@ -220,6 +255,9 @@ def test_agent_eval_remaining_paths(monkeypatch, tmp_path, capsys):
 
 
 def test_setup_beta_project_boundaries(monkeypatch, capsys):
+    """Exercise the GraphQL/REST wrappers, dry-run project/field/issue
+    creation, label creation with missing/failing lookups, issue linking,
+    and the dry-run CLI path."""
     s = load("setup_beta_project")
     response = Mock(); response.json.return_value = {"data": {"x": 1}}; monkeypatch.setattr(s.requests, "post", lambda *x, **y: response); assert s.gql("q") == {"x": 1}
     response.json.return_value = {"errors": ["bad"]}
@@ -242,6 +280,9 @@ def test_setup_beta_project_boundaries(monkeypatch, capsys):
 
 
 def test_download_and_sync_remaining_branches(monkeypatch, tmp_path):
+    """Exercise ReferenceDownloader's download/registry-flush paths and
+    PubMed sync's state loading, FTP-quit-error tolerance, bad-archive
+    parsing, and main()'s error-tolerant processing loop."""
     d = load("download_references"); dl = d.ReferenceDownloader(tmp_path)
     monkeypatch.setattr(d.subprocess, "run", lambda *x, **y: None); assert dl.download_file("u", tmp_path / "x", "x") is True
     assert dl.registry["downloads"] if "downloads" in dl.registry else True
@@ -257,6 +298,9 @@ def test_download_and_sync_remaining_branches(monkeypatch, tmp_path):
     monkeypatch.setattr(s, "load_state", lambda: {"files_processed": []}); monkeypatch.setattr(s, "get_all_update_files", lambda: ["bad"]); monkeypatch.setattr(s, "download_file", lambda _: bad); monkeypatch.setattr(s, "parse_xml", lambda _: (_ for _ in ()).throw(RuntimeError("parse"))); s.main()
 
 def test_browser_debug_and_failure_branches(monkeypatch, capsys):
+    """Print DEBUG diagnostics even when screenshot/locator/role calls all
+    raise, and return the correct delete_package() outcome for a missing
+    dialog, missing confirmation textbox, and missing submit button."""
     for name in ("delete_packages_browser", "make_public_browser"):
         mod = load(name); page = MagicMock(); page.url = "u"; page.title.return_value = "t"
         page.screenshot.side_effect = RuntimeError("shot"); page.get_by_role.return_value.all_text_contents.side_effect = RuntimeError("buttons")
@@ -271,6 +315,9 @@ def test_browser_debug_and_failure_branches(monkeypatch, capsys):
 
 
 def test_browser_main_processing_paths(monkeypatch, tmp_path, capsys):
+    """Report deleted/failed counts across a confirmed delete run and
+    tolerate a continue-on-fail connection error; report already-private
+    and continue-on-fail visibility outcomes for make_public_browser."""
     d = load("delete_packages_browser"); Path(tmp_path / "auth").write_text("x"); Path(tmp_path / "packages").write_text("one\ntwo\n")
     for attr, val in (("AUTH_STATE_FILE", str(tmp_path/"auth")), ("PACKAGES_FILE", str(tmp_path/"packages")), ("LOG_FILE", str(tmp_path/"dlog"))): monkeypatch.setattr(d, attr, val)
     monkeypatch.setattr(d, "sync_playwright", lambda: FakePlaywright(MagicMock())); monkeypatch.setattr(d, "delete_package", Mock(side_effect=["deleted", "error: bad"])); monkeypatch.setattr(d, "mark_done", Mock()); monkeypatch.setattr(d.time, "sleep", lambda _: None)
@@ -281,6 +328,9 @@ def test_browser_main_processing_paths(monkeypatch, tmp_path, capsys):
 
 
 def test_public_failure_return_branches(monkeypatch):
+    """Return the matching set_package_visibility() failure code for a
+    timed-out change button, a missing dialog, a missing public radio, and
+    a missing confirmation textbox."""
     m = load("make_public_browser"); page = MagicMock(); page.title.return_value = "Settings"; page.url = "/settings"; page.get_by_text.return_value.count.return_value = 0; monkeypatch.setattr(m, "dump_debug_info", lambda *x: None)
     page.get_by_role.return_value.click.side_effect = m.PWTimeout("x"); assert m.set_package_visibility(page,"o","p") == "no_change_button"
     page.get_by_role.return_value.click.side_effect = None; monkeypatch.setattr(m, "find_open_dialog", lambda *_: None); assert m.set_package_visibility(page,"o","p") == "no_dialog"
@@ -288,6 +338,9 @@ def test_public_failure_return_branches(monkeypatch):
     dialog.locator.return_value.check.side_effect=None; dialog.get_by_role.return_value.first.fill.side_effect=m.PWTimeout("x"); page.locator.return_value.last.fill.side_effect=m.PWTimeout("x"); assert m.set_package_visibility(page,"o","p") == "no_confirm_textbox"
 
 def test_public_diagnostics_fallbacks_and_cli_edges(monkeypatch, tmp_path, capsys):
+    """Exit when the org packages file is missing, tolerate diagnostic
+    lookups that raise or return unusual data, propagate a locator
+    exception, and dispatch main()'s no-session and --login paths."""
     m = load("make_public_browser")
     monkeypatch.setattr(m, "ORG_PACKAGES_FILE", str(tmp_path / "missing"))
     with pytest.raises(SystemExit): m.load_candidate_packages("org")
@@ -308,6 +361,9 @@ def test_public_diagnostics_fallbacks_and_cli_edges(monkeypatch, tmp_path, capsy
 
 
 def test_delete_diagnostics_login_and_dialog_edges(monkeypatch, tmp_path, capsys):
+    """Print diagnostic button text during debug dumping, propagate a
+    locator exception from find_open_dialog(), and save a session on
+    do_login()."""
     d = load("delete_packages_browser"); page=MagicMock(); page.url="u"; page.title.return_value="t"; page.screenshot.return_value=None; page.get_by_role.return_value.all_text_contents.return_value=[" Go "]; d.dump_debug_info(page,"p"); assert "Go" in capsys.readouterr().out
     page.locator.side_effect=RuntimeError("bad")
     with pytest.raises(RuntimeError): d.find_open_dialog(page,"x")
@@ -326,6 +382,9 @@ def test_delete_diagnostics_login_and_dialog_edges(monkeypatch, tmp_path, capsys
 
 
 def test_setup_main_error_and_live_branches(monkeypatch):
+    """Exit with SystemExit when no GitHub token is configured and again
+    when the initial auth GraphQL call fails; tolerate a 404 on label
+    lookup by creating the label."""
     s=load("setup_beta_project"); monkeypatch.setattr(s,"GITHUB_TOKEN",""); monkeypatch.setattr(sys,"argv",["x"])
     with pytest.raises(SystemExit): s.main()
     monkeypatch.setattr(s,"GITHUB_TOKEN","x"); monkeypatch.setattr(s,"gql",Mock(side_effect=RuntimeError("auth")))
@@ -334,12 +393,17 @@ def test_setup_main_error_and_live_branches(monkeypatch):
 
 
 def test_reindex_validation_failures(monkeypatch,tmp_path):
+    """Raise RuntimeError for an embedding of unexpected dimension on both
+    the CUDA and Ollama single-shard reindexing scripts."""
     r=load("pubmed.reindex_one_shard"); inp=tmp_path/"i"; inp.mkdir(); (inp/"1.txt").write_text("x"); monkeypatch.setattr(r,"INPUT_DIR",inp); monkeypatch.setattr(r,"STAGING_DIR",tmp_path/"s"); monkeypatch.setattr(r.torch.cuda,"is_available",lambda:True); monkeypatch.setattr(r.torch.cuda,"get_device_name",lambda _:"x"); monkeypatch.setattr(r.torch.cuda,"mem_get_info",lambda:(1,2)); monkeypatch.setattr(r,"SentenceTransformer",lambda *a,**k:SimpleNamespace(device="cuda",parameters=lambda:iter([SimpleNamespace(dtype="x")]),encode=lambda *a,**k:np.ones((1,1),dtype=np.float32))); monkeypatch.setattr(r.faiss,"IndexFlatIP",lambda d:FakeIndex(d))
     with pytest.raises(RuntimeError,match="Unexpected dimension"): r.main()
     o=load("pubmed.reindex_one_shard_ollama"); monkeypatch.setattr(o,"INPUT_DIR",inp); monkeypatch.setattr(o,"STAGING_DIR",tmp_path/"os"); resp=Mock(); resp.json.return_value={"embeddings":[[1.0]*o.DIMENSION]}; monkeypatch.setattr(o.requests,"post",Mock(return_value=resp)); idx=FakeIndex(o.DIMENSION); monkeypatch.setattr(o.faiss,"IndexFlatIP",lambda d:idx); monkeypatch.setattr(o.faiss,"normalize_L2",lambda x:None); monkeypatch.setattr(o.faiss,"write_index",lambda *x:None); bad=SimpleNamespace(d=1,ntotal=1); monkeypatch.setattr(o.faiss,"read_index",lambda *x:bad)
     with pytest.raises(RuntimeError,match="Invalid dimension"): o.main()
 
 def test_agent_api_and_yaml_loading(monkeypatch, tmp_path):
+    """Load tools from the TES API with backend/verification tags applied,
+    and from YAML directories/files with the correct backend and source
+    metadata attached."""
     a=load("agent_tool_selection_eval"); resp=Mock(); resp.json.return_value=[{"tool_id":"x","tags":["http","unverified"]}]; monkeypatch.setattr(a.requests,"get",lambda *x,**y:resp); tools=a.load_corpus_from_api("http://tes",["unverified"]); assert tools[0]["_verified"] is False
     d=tmp_path/"tools"; (d/"x86_64").mkdir(parents=True); (d/"a.yaml").write_text("tools:\n  - tool_id: a\n    slurm: true\n    tags: [slurm]\n"); (d/"x86_64/b.yaml").write_text("tools: []\n"); monkeypatch.setattr(a,"yaml",__import__("yaml")); assert a.load_corpus(None,str(d),["slurm"],None,[],False)[0]["_backend"] == "slurm"
     y=tmp_path/"one.yaml"; y.write_text("tools:\n  - tool_id: x\n    inputs_schema: {required: [a]}\n"); assert a.load_corpus(str(y),None,None,None,[],False)[0]["_source_file"] == "unknown"
@@ -347,7 +411,10 @@ def test_agent_api_and_yaml_loading(monkeypatch, tmp_path):
 
 
 def test_download_cli_branches(monkeypatch,tmp_path,capsys):
-    d=load("download_references"); dl=d.ReferenceDownloader(tmp_path); dl.registry={}; dl.print_status(); assert "Registry: empty" in capsys.readouterr().out; assert d._now(); monkeypatch.setattr(sys,"argv",["x","--base-dir",str(tmp_path),"--scaffold","--dry-run"]); d.main(); monkeypatch.setattr(sys,"argv",["x","--base-dir",str(tmp_path)]); 
+    """Report an empty registry, require at least one selection flag,
+    reject an unknown assembly at argument-parsing time, and report a
+    missing downloader for an unmapped assembly."""
+    d=load("download_references"); dl=d.ReferenceDownloader(tmp_path); dl.registry={}; dl.print_status(); assert "Registry: empty" in capsys.readouterr().out; assert d._now(); monkeypatch.setattr(sys,"argv",["x","--base-dir",str(tmp_path),"--scaffold","--dry-run"]); d.main(); monkeypatch.setattr(sys,"argv",["x","--base-dir",str(tmp_path)]);
     with pytest.raises(SystemExit): d.main()
     monkeypatch.setattr(sys,"argv",["x","--base-dir",str(tmp_path),"--assemblies","UNKNOWN"]); # parser rejects this before business logic; validate separately
     with pytest.raises(SystemExit): d.parse_args()
@@ -355,9 +422,15 @@ def test_download_cli_branches(monkeypatch,tmp_path,capsys):
 
 
 def test_public_radio_and_submit_failures(monkeypatch):
+    """Return submit_button_not_found when both the dialog's and the
+    page's submit-button clicks time out after the radio and textbox
+    steps succeed."""
     m=load("make_public_browser"); page=MagicMock(); page.title.return_value="Settings"; page.url="/settings"; page.get_by_text.return_value.count.return_value=0; dialog=MagicMock(); monkeypatch.setattr(m,"find_open_dialog",lambda *_:dialog); page.get_by_role.return_value.click.return_value=None; dialog.locator.return_value.check.return_value=None; dialog.get_by_role.return_value.first.fill.return_value=None; dialog.get_by_role.return_value.click.side_effect=m.PWTimeout("x"); page.get_by_role.return_value.click.side_effect=[None,m.PWTimeout("x")]; monkeypatch.setattr(m,"dump_debug_info",lambda *x:None); assert m.set_package_visibility(page,"o","p") == "submit_button_not_found"
 
 def test_final_cli_error_branches(monkeypatch,tmp_path):
+    """Dispatch delete_packages_browser's --login flag to do_login(), exit
+    agent_tool_selection_eval on missing corpus sources without yaml, and
+    exercise setup_beta_project's dry-run and file-output CLI paths."""
     d=load("delete_packages_browser"); monkeypatch.setattr(d,"AUTH_STATE_FILE",str(tmp_path/"a")); monkeypatch.setattr(d,"PACKAGES_FILE",str(tmp_path/"p")); Path(d.AUTH_STATE_FILE).write_text("x"); monkeypatch.setattr(d,"do_login",Mock()); monkeypatch.setattr(sys,"argv",["x","--login"]); d.main(); Path(d.PACKAGES_FILE).write_text("x\n"); monkeypatch.setattr(sys,"argv",["x"]); d.main(); Path(d.PACKAGES_FILE).unlink();
     a=load("agent_tool_selection_eval")
     td=tmp_path/"td"; td.mkdir(); monkeypatch.setattr(a,"yaml",None)
@@ -368,6 +441,8 @@ def test_final_cli_error_branches(monkeypatch,tmp_path):
 
 
 def test_public_main_auth_and_stop(monkeypatch,tmp_path):
+    """Exit main() when no saved session exists, and continue processing
+    other packages after one fails."""
     m=load("make_public_browser"); monkeypatch.setattr(m,"AUTH_STATE_FILE",str(tmp_path/"a")); monkeypatch.setattr(sys,"argv",["x"])
     with pytest.raises(SystemExit): m.main()
     Path(m.AUTH_STATE_FILE).write_text("x"); monkeypatch.setattr(m,"ORG_PACKAGES_FILE",str(tmp_path/"o")); (tmp_path/"o").write_text("a\tprivate\n"); monkeypatch.setattr(m,"sync_playwright",lambda:FakePlaywright(MagicMock())); monkeypatch.setattr(m,"set_package_public",lambda *x: "error: bad"); monkeypatch.setattr(sys,"argv",["x","--delay","0"]); m.main()

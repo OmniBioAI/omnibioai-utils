@@ -1,6 +1,8 @@
 """Offline checkpoint tests: real NumPy/filesystem, no model download or upload.
 
 Run from the repository root: python3 -m unittest discover -s tests/pubmed -v
+
+Developer: Manish Kumar <manish@omnibioai.org>
 """
 import importlib.util
 import json
@@ -30,6 +32,9 @@ with mock.patch.dict("sys.modules", {
 
 
 class FakeModel:
+    """Deterministic SentenceTransformer stand-in that one-hot encodes each
+    text's integer value and can raise on a chosen call to simulate a crash
+    or interrupt mid-encode."""
     max_seq_length = 512
 
     def __init__(self, failure_call=None, failure_type=RuntimeError):
@@ -55,6 +60,10 @@ class FakeModel:
 
 
 class CheckpointTests(unittest.TestCase):
+    """Verify embed_with_checkpoints resumes correctly from partial, gapped,
+    corrupt, or incompatible checkpoint state without losing or duplicating
+    committed embeddings."""
+
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
@@ -89,12 +98,16 @@ class CheckpointTests(unittest.TestCase):
         return self.directory / f"block_{block:06d}.npz"
 
     def test_faiss_native_module_is_lazy_and_patchable(self):
+        """Load faiss via sys.modules on first access instead of import time,
+        so tests can substitute a fake implementation."""
         fake_faiss = object()
         with mock.patch.object(script, "faiss", None), \
              mock.patch.dict("sys.modules", {"faiss": fake_faiss}):
             self.assertIs(script.load_faiss(), fake_faiss)
 
     def test_mps_runtime_is_lazy_and_patchable(self):
+        """Load torch and SentenceTransformer via sys.modules on first access
+        instead of import time, so tests can substitute fakes for both."""
         fake_torch = object()
         fake_transformer = object()
         fake_sentence_transformers = types.SimpleNamespace(
@@ -109,6 +122,8 @@ class CheckpointTests(unittest.TestCase):
             self.assertEqual(script.load_mps_runtime(), (fake_torch, fake_transformer))
 
     def test_faiss_is_loaded_after_model_in_cli(self):
+        """Defer loading faiss until after the embedding model, and skip
+        loading it entirely when there is no unit to process."""
         fake_torch = types.SimpleNamespace(
             backends=types.SimpleNamespace(mps=types.SimpleNamespace(is_available=lambda: True))
         )
@@ -147,6 +162,8 @@ class CheckpointTests(unittest.TestCase):
         np.savez(path, embeddings=vectors, metadata=json.dumps(metadata))
 
     def test_partial_final_block_and_full_reuse(self):
+        """Write one checkpoint block per full/partial batch and fully reuse
+        them, without re-encoding anything, on a resumed run."""
         model = FakeModel()
         expected, duration = self.embed(model)
         self.assertEqual(model.calls, [["0", "1"], ["2", "3"], ["4"]])
@@ -160,6 +177,8 @@ class CheckpointTests(unittest.TestCase):
         self.assertEqual(duration, resumed_duration)
 
     def test_encode_exception_and_keyboard_interrupt_resume(self):
+        """Preserve prior committed blocks and resume only the unwritten
+        remainder after an encode() failure or a keyboard interrupt."""
         for failure in (RuntimeError, KeyboardInterrupt):
             with self.subTest(failure=failure):
                 # Reset only test-owned files between scenarios.
@@ -176,6 +195,8 @@ class CheckpointTests(unittest.TestCase):
                 np.testing.assert_array_equal(actual.argmax(axis=1), np.arange(5))
 
     def test_gap_and_stale_temporary_file(self):
+        """Recompute a missing block and ignore a leftover abandoned .tmp
+        file left behind by an earlier interrupted write."""
         self.embed()
         self.path(2).unlink()
         (self.directory / "block_000002.npz.abandoned.tmp").write_bytes(b"partial")
@@ -184,6 +205,8 @@ class CheckpointTests(unittest.TestCase):
         self.assertEqual(resumed.calls, [["2", "3"]])
 
     def test_production_block_boundary(self):
+        """Split at the production CHECKPOINT_ROWS boundary into a full
+        block plus a one-row remainder, and fully reuse both on resume."""
         self.texts = [str(i % 1024) for i in range(10_001)]
         self.pmids = [str(i) for i in range(10_001)]
         with mock.patch.object(script, "CHECKPOINT_ROWS", 10_000):
@@ -196,6 +219,8 @@ class CheckpointTests(unittest.TestCase):
             np.testing.assert_array_equal(actual, recovered)
 
     def test_invalid_new_vectors_never_published(self):
+        """Reject NaN-containing embeddings before any checkpoint file is
+        written, leaving no partial output behind."""
         model = FakeModel()
         model.encode = mock.Mock(return_value=np.full((2, 1024), np.nan, dtype=np.float32))
         with self.assertRaisesRegex(ValueError, "NaN"):
@@ -203,6 +228,9 @@ class CheckpointTests(unittest.TestCase):
         self.assertEqual(list(self.directory.glob("*.npz")), [])
 
     def test_corrupt_vectors_recomputed(self):
+        """Detect a checkpoint block with the wrong row count, dimension,
+        dtype, NaN/Inf values, or a truncated/unreadable archive, and
+        recompute that block instead of trusting it."""
         changes = {
             "rows": lambda v: v[:1],
             "dimension": lambda v: v[:, :100],
@@ -223,6 +251,9 @@ class CheckpointTests(unittest.TestCase):
         self.assertEqual(resumed.calls, [["2", "3"]])
 
     def test_incompatible_settings_refused_before_encoding_gap(self):
+        """Refuse to resume, without encoding anything, when a checkpoint's
+        recorded model/dimension/normalization/revision/max-seq-length
+        settings no longer match the current run."""
         self.embed()
         original = self.path(3).read_bytes()
         self.path(1).unlink()
@@ -242,6 +273,8 @@ class CheckpointTests(unittest.TestCase):
                 self.assertEqual(model.calls, [])
 
     def test_changed_source_or_pmid_order_refused(self):
+        """Refuse to resume when the source texts or PMIDs have been
+        reordered relative to the existing checkpoint."""
         self.embed()
         for attribute in ("texts", "pmids"):
             with self.subTest(attribute=attribute):
@@ -252,6 +285,9 @@ class CheckpointTests(unittest.TestCase):
                 setattr(self, attribute, original)
 
     def test_atomic_write_failures_preserve_committed_file(self):
+        """Leave the previously committed checkpoint file and directory
+        untouched when np.savez, os.fsync, or os.replace fails or is
+        interrupted mid-write, with no leftover .tmp file."""
         self.embed()
         path = self.path(1)
         expected = {**script.checkpoint_settings(FakeModel(), self.chunk, self.texts, self.pmids),
@@ -269,6 +305,8 @@ class CheckpointTests(unittest.TestCase):
                     self.assertEqual(list(self.directory.glob("*.tmp")), [])
 
     def test_cli_range_and_chunk004_behavior(self):
+        """Exclude chunk 004 from a --start/--end range by default, and
+        include it only when --include-004 is passed."""
         with mock.patch.object(script, "discover_units", return_value=[
                  script.IndexingUnit("general_corpus", script.chunk_name(i)) for i in (3, 4, 5)
              ]), \
