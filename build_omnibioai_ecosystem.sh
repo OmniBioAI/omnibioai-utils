@@ -116,17 +116,39 @@ fi
 ok "✓ Report generated with no errors. Proceeding to Step 4."
 
 # ---------------------------------------------------------------------------
-# Step 4: Build and recreate omnibioai-studio
+# Step 4: Build and start omnibioai-studio (changed services only)
 # ---------------------------------------------------------------------------
 step "Step 4/4: Building and starting omnibioai-studio (docker compose)"
 
 STUDIO_DIR="$ROOT/omnibioai-studio"
 [ -d "$STUDIO_DIR" ] || fail "Studio directory not found: $STUDIO_DIR"
 
+# redis-acl-init's host mounts are launcher-supplied, not .env settings --
+# same defaults as omnibioai-studio/scripts/start.sh (and electron/main.js
+# in dev mode), all relative to the Studio checkout. Caller overrides win.
+export REDIS_ACL_CREDENTIAL_DIR="${REDIS_ACL_CREDENTIAL_DIR:-$STUDIO_DIR/.secrets/redis-acl}"
+export REDIS_ACL_SCRIPT_PATH="${REDIS_ACL_SCRIPT_PATH:-$STUDIO_DIR/scripts/redis_acl_bootstrap.py}"
+export REDIS_ACL_POLICY_PATH="${REDIS_ACL_POLICY_PATH:-$STUDIO_DIR/config/redis/acl-policy.json}"
+
+# Fail before touching compose if any mount source is missing: docker would
+# otherwise silently create it as an empty root-owned directory on the host.
+# The credential dir is populated only by the Studio launcher / the protected
+# ACL adoption workflow (omnibioai-studio/docs/security/redis_acl_bootstrap.md),
+# never by this script.
+[ -f "$REDIS_ACL_SCRIPT_PATH" ] || fail "Redis ACL bootstrap script not found: $REDIS_ACL_SCRIPT_PATH"
+[ -f "$REDIS_ACL_POLICY_PATH" ] || fail "Redis ACL policy not found: $REDIS_ACL_POLICY_PATH"
+[ -d "$REDIS_ACL_CREDENTIAL_DIR" ] || fail "Redis ACL credential directory not found: $REDIS_ACL_CREDENTIAL_DIR (create it via the Studio launcher / ACL adoption workflow, not this script)"
+
+# Plain `up -d` recreates only services whose image or config changed, so
+# unchanged stateful services (redis, mysql, ...) keep running. nginx-router
+# is the one exception: it caches upstream IPs at startup, so any recreated
+# backend would 502 behind it (docs/DEPLOYMENT.md). It's stateless, so it
+# alone is force-recreated, without touching its dependencies.
 (
     cd "$STUDIO_DIR"
     docker compose build
-    docker compose up -d --force-recreate
+    docker compose up -d
+    docker compose up -d --no-deps --force-recreate nginx-router
 ) || fail "Docker compose build/up failed for omnibioai-studio." docker
 
 ok "✓ omnibioai-studio built and running."
