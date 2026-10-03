@@ -20,6 +20,7 @@ jobs:
         with:
           python-version: "3.11"
           cache: pip
+          cache-dependency-path: requirements-dev.txt
 
       # The tests import the scripts' real dependencies and stub their
       # behaviour, so the packages must be installed. torch comes from the
