@@ -100,6 +100,7 @@ remain outside this repository.
 | Script | Description |
 |--------|-------------|
 | `agent_tool_selection_eval.py` | Evaluates how reliably a local Ollama model selects the correct tool and fills valid arguments from a semantically-narrowed shortlist drawn from the TES tool corpus |
+| `literature_cost_benchmark.py` | Measures what one Literature AI answer costs to serve: sends N questions to the public `/v1/literature/answers` API with an `omni_sk_` key while sampling the GPU with `nvidia-smi`, and reports latency, GPU busy-seconds and energy per answer, cost per answer and a suggested price per 1,000 answers (`--gpu-hourly-cost`, `--markup`) |
 | `prepare_real_data_facs.py` | Builds a real ClinVar-derived training set (CADD, gnomAD, GERP, PhyloP, SIFT, PolyPhen features) for the `variant_pathogenicity_classifier` plugin, replacing its synthetic 24-row toy dataset |
 
 ---
@@ -170,6 +171,18 @@ different repository, role or package set. Leave the browser window alone
 while it runs. A failure saves `debug_<package>.png` and prints the page's
 buttons and dialogs; re-running skips packages already completed.
 
+### Measure the cost of a Literature AI answer
+
+Run on the GPU host that serves RAG and Ollama, so `nvidia-smi` sees the serving GPU:
+
+```bash
+OMNIBIOAI_API_KEY=omni_sk_... python3 literature_cost_benchmark.py \
+    --base-url https://<gateway> --count 1000 --gpu-hourly-cost 2.50 --output cost.json
+```
+
+Raise `--concurrency` to find the throughput the GPU sustains; the "dedicated"
+cost per answer falls as throughput rises.
+
 ### Disable CI/CD across all repos
 ```bash
 bash disable_cicd.sh
@@ -190,6 +203,7 @@ registries and should be reviewed before execution:
 - `grant_package_access_browser.py` changes which repositories can access GHCR packages.
 - `push_sifs.sh` and `build_all_tools.sh` push images to registries.
 - `migrate_public_images.sh` copies images between registries.
+- `literature_cost_benchmark.py` makes billable API requests for the key's organization; run it with a test organization's key.
 - `delete_old_packages.sh` and `delete_packages_browser.py` delete packages. Use their dry-run mode first; deletion requires explicit confirmation.
 
 Where supported, use `--dry-run` before applying changes.
