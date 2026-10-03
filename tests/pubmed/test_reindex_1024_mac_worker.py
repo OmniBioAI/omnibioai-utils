@@ -213,6 +213,118 @@ class WorkerTests(unittest.TestCase):
         self.assertEqual(len(original), 3)
         self.assertFalse(self.downloaded().exists())
 
+    def test_local_compute_complete_resume_uploads_without_recomputation(self):
+        """After a verified local PASS (embeddings assembled, FAISS built,
+        self-test passed) but a failed upload -- the chunk054 incident --
+        resuming must skip source download, source parsing, embedding, and
+        self-retrieval entirely, reusing the exact local artifacts and only
+        retrying publication, which must still pass remote verification."""
+        self.hub.failure = "upload"
+        with self.assertRaisesRegex(RuntimeError, "upload failure"):
+            self.run_unit()
+        self.assert_retained()
+        saved = json.loads(script.MANIFEST_FILE.read_text())["shards"][self.unit.key]
+        self.assertEqual(saved["status"], "PASS")
+        before = {name: (self.unit.output_dir / name).read_bytes() for name in script.ARTIFACT_NAMES}
+        self.hub.failure = None
+        with mock.patch.object(script, "obtain_source",
+                                side_effect=AssertionError("source re-fetched")), \
+             mock.patch.object(script, "load_unit_abstracts",
+                                side_effect=AssertionError("source re-parsed")), \
+             mock.patch.object(script, "embed_with_checkpoints",
+                                side_effect=AssertionError("re-embedded")), \
+             mock.patch.object(script, "self_retrieval_test",
+                                side_effect=AssertionError("self-test re-run")):
+            resumed = FakeModel()
+            self.run_unit(resumed)
+        self.assertEqual(resumed.calls, [])
+        after = {name: self.hub.destination[f"{self.unit.remote_path}/{name}"]
+                 for name in script.ARTIFACT_NAMES}
+        self.assertEqual(after, before)
+        saved = json.loads(script.MANIFEST_FILE.read_text())["shards"][self.unit.key]
+        self.assertEqual(saved["status"], "UPLOADED")
+        self.assertTrue(saved["local_artifacts_verified"])
+        self.assertEqual(set(saved["remote_artifacts"]), set(script.ARTIFACT_NAMES))
+        self.assertFalse(self.unit.output_dir.exists())
+        self.assertFalse(self.downloaded().exists())
+
+    def test_local_compute_complete_resume_requires_remote_verification_to_pass(self):
+        """The LOCAL_COMPUTE_COMPLETE resume shortcut must still perform full
+        remote verification after upload, and must not mark the unit
+        UPLOADED or delete local work when that verification fails."""
+        self.hub.failure = "upload"
+        with self.assertRaisesRegex(RuntimeError, "upload failure"):
+            self.run_unit()
+        self.hub.failure = "hash"
+        with self.assertRaisesRegex(RuntimeError, "HF verification failed"):
+            self.run_unit()
+        self.assert_retained()
+        saved = json.loads(script.MANIFEST_FILE.read_text())["shards"][self.unit.key]
+        self.assertEqual(saved["status"], "PASS")
+        self.assertNotEqual(saved.get("status"), "UPLOADED")
+
+    def test_local_artifacts_complete_rejects_corrupt_or_incompatible_state(self):
+        """local_artifacts_complete must return None -- never granting the
+        upload-only shortcut -- for a truncated FAISS file, a missing PMID
+        map, or metadata that disagrees on dimension/status/normalization/
+        model/vector_count, even though the untouched PASS directory
+        validates cleanly before and after each corruption."""
+        self.hub.failure = "upload"
+        with self.assertRaisesRegex(RuntimeError, "upload failure"):
+            self.run_unit()
+        output_dir = self.unit.output_dir
+        self.assertIsNotNone(script.local_artifacts_complete(self.unit))
+
+        original_index = (output_dir / "index.faiss").read_bytes()
+        original_metadata = json.loads((output_dir / "metadata.json").read_text())
+        original_pmids = (output_dir / "pmid_map.json").read_bytes()
+
+        def restore():
+            (output_dir / "index.faiss").write_bytes(original_index)
+            (output_dir / "metadata.json").write_text(json.dumps(original_metadata))
+            (output_dir / "pmid_map.json").write_bytes(original_pmids)
+
+        with self.subTest("missing pmid_map"):
+            (output_dir / "pmid_map.json").unlink()
+            self.assertIsNone(script.local_artifacts_complete(self.unit))
+            restore()
+
+        with self.subTest("truncated index"):
+            (output_dir / "index.faiss").write_bytes(original_index[:20])
+            self.assertIsNone(script.local_artifacts_complete(self.unit))
+            restore()
+
+        for key, value in {
+            "dimension": 768, "status": "FAILED", "vector_count": 999,
+            "normalized": False, "model": "different-model",
+        }.items():
+            with self.subTest(key=key):
+                metadata = dict(original_metadata)
+                metadata[key] = value
+                (output_dir / "metadata.json").write_text(json.dumps(metadata))
+                self.assertIsNone(script.local_artifacts_complete(self.unit))
+                restore()
+
+        with self.subTest("pmid count mismatch"):
+            (output_dir / "pmid_map.json").write_text(json.dumps(["x"]))
+            self.assertIsNone(script.local_artifacts_complete(self.unit))
+            restore()
+
+        self.assertIsNotNone(script.local_artifacts_complete(self.unit))
+
+    def test_workflow_has_no_dependency_on_hf_xet(self):
+        """This reindex workflow uploads exclusively through
+        api.upload_folder and never imports or references Xet/hf_xet, so
+        publication cannot fail on a missing or incompatible hf_xet
+        installation; confirms hf_xet is genuinely absent in this
+        environment, matching the incident's restored environment."""
+        source = Path(script.__file__).read_text() if getattr(script, "__file__", None) else None
+        if source is None:
+            source = (Path(__file__).resolve().parents[2] / "pubmed" / "reindex_1024_mac.py").read_text()
+        self.assertNotIn("xet", source.lower())
+        import importlib.util as importlib_util
+        self.assertIsNone(importlib_util.find_spec("hf_xet"))
+
     def test_verification_failures_never_delete_local_work(self):
         """Retain local work and keep the manifest at PASS (not UPLOADED)
         when post-upload HF verification finds a missing file, hash

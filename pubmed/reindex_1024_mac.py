@@ -738,6 +738,70 @@ def upload_and_verify(api, unit):
     return remote_receipt(unit, remote)
 
 
+def local_artifacts_complete(unit):
+    """Check this unit's own local output files for a complete, passing
+    computation (LOCAL_COMPUTE_COMPLETE), independent of the manifest's
+    "status" field: a later publication failure overwrites that field, but
+    must never be allowed to erase the evidence that computation already
+    finished. Mirrors remote_completed_unit's trust model (recorded PASS
+    metadata plus a structural reload), applied to the on-disk artifacts
+    instead of the remote ones. Returns the validated metadata, or None if
+    the local artifacts are absent, incomplete, or incompatible.
+    """
+    output_dir = unit.output_dir
+    if not all((output_dir / name).is_file() for name in ARTIFACT_NAMES):
+        return None
+    try:
+        with (output_dir / "metadata.json").open(encoding="utf-8") as handle:
+            metadata = json.load(handle)
+        valid = (
+            metadata["chunk"] == unit.name
+            and metadata.get("corpus_type", "general_corpus") == unit.kind
+            and (unit.kind != "domains" or metadata.get("source_paths") == list(unit.source_files))
+            and metadata["status"] == "PASS"
+            and metadata["model"] == MODEL_NAME
+            and metadata["dimension"] == DIMENSION
+            and metadata["normalized"] is NORMALIZE_EMBEDDINGS
+            and metadata["faiss_type"] == "IndexFlatIP"
+            and type(metadata["vector_count"]) is int and metadata["vector_count"] > 0
+            and metadata["vector_count"] == metadata["pmid_count"] == metadata["usable_abstracts"]
+            and metadata["self_retrieval"]["queries"] > 0
+            and metadata["self_retrieval"]["top1"] == 1.0
+        )
+        if not valid:
+            return None
+        with (output_dir / "pmid_map.json").open(encoding="utf-8") as handle:
+            pmids = json.load(handle)
+        if not isinstance(pmids, list) or len(pmids) != metadata["pmid_count"]:
+            return None
+        faiss_module = load_faiss()
+        index = faiss_module.read_index(str(output_dir / "index.faiss"))
+        if index.d != DIMENSION or index.ntotal != metadata["vector_count"]:
+            return None
+    except (OSError, ValueError, KeyError, TypeError, RuntimeError):
+        return None
+    return metadata
+
+
+def _publish_unit(api, unit, manifest, downloaded_source, embeddings=None, reload_index=None):
+    """Upload already-validated local artifacts, verify them remotely, and
+    persist UPLOADED only after that verification passes. Shared by both the
+    fresh-computation path and the LOCAL_COMPUTE_COMPLETE resume shortcut, so
+    a failed upload is retried identically either way.
+    """
+    chunk = unit.key
+    receipt = upload_and_verify(api, unit)
+    manifest["shards"][chunk]["status"] = "UPLOADED"
+    manifest["shards"][chunk]["uploaded_at"] = now()
+    manifest["shards"][chunk].update(receipt)
+    manifest["shards"][chunk]["local_artifacts_verified"] = True
+    save_manifest(manifest)
+    # Release any mapped embeddings/FAISS index before deleting their worker files.
+    del embeddings
+    del reload_index
+    cleanup_worker_files(unit, downloaded_source)
+    log(f"{chunk}: FINAL STATUS UPLOADED")
+
 
 def owned_source_dir(unit, state):
     """Only a recorded, uniquely allocated worker directory may be removed."""
@@ -968,6 +1032,19 @@ def _process_unit(model, api, unit, manifest):
         if can_cleanup:
             cleanup_worker_files(unit, downloaded_source)
         log(f"{chunk}: 1024-D destination already complete; skipping source and indexing")
+        return
+
+    local_metadata = local_artifacts_complete(unit)
+    if local_metadata is not None:
+        log(f"{chunk}: local artifacts already LOCAL_COMPUTE_COMPLETE; "
+            f"skipping source/embedding/FAISS/self-test and retrying publication only")
+        downloaded_source = owned_source_dir(unit, state)
+        manifest["shards"][chunk] = {
+            **state, **local_metadata,
+            "status": "PASS", "local_artifacts_verified": False,
+        }
+        save_manifest(manifest)
+        _publish_unit(api, unit, manifest, downloaded_source)
         return
 
     free_gib = free_disk_gib(
@@ -1236,38 +1313,7 @@ def _process_unit(model, api, unit, manifest):
         manifest
     )
 
-    receipt = (
-        upload_and_verify(api, unit)
-    )
-
-    manifest[
-        "shards"
-    ][chunk][
-        "status"
-    ] = "UPLOADED"
-
-    manifest[
-        "shards"
-    ][chunk][
-        "uploaded_at"
-    ] = now()
-
-    manifest["shards"][chunk].update(receipt)
-    manifest["shards"][chunk]["local_artifacts_verified"] = True
-
-    save_manifest(
-        manifest
-    )
-
-    # Release the mapped matrix before deleting its worker checkpoint directory.
-    del embeddings
-    del reload_index
-    cleanup_worker_files(unit, downloaded_source)
-
-    log(
-        f"{chunk}: "
-        f"FINAL STATUS UPLOADED"
-    )
+    _publish_unit(api, unit, manifest, downloaded_source, embeddings, reload_index)
 
     del texts
     del pmids
