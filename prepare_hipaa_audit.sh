@@ -1,4 +1,4 @@
-i#!/usr/bin/env bash
+#!/usr/bin/env bash
 set -uo pipefail
 
 ROOT="${1:-$HOME/Desktop/machine}"

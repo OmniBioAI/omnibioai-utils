@@ -48,6 +48,7 @@ ALWAYS_PRIVATE = {
     "omnibioai-app",
     "omnibioai-lims",
     "omnibioai-license-server",
+    "omnibioai-rag"
 }
 
 

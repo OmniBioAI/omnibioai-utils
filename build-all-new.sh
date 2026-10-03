@@ -2,7 +2,7 @@
 # build-all-new.sh
 
 BASE=/home/manish/Desktop/machine
-REGISTRY=ghcr.io/man4ish
+REGISTRY=ghcr.io/omnibioai
 
 declare -A SERVICES=(
   ["omnibioai-tes"]="omnibioai-tes:new"
