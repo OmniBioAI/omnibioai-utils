@@ -25,6 +25,7 @@ Developer utilities, automation scripts, and ecosystem management tools for the 
 | `build-all-new.sh` | Builds the listed service images locally using each repo's `Dockerfile.new`; it does not push them |
 | `build_all_tools.sh` | Builds all bioinformatics tool images and pushes to ECR and GHCR |
 | `build_cython.sh` | Compiles all high-priority Cython files across repos before Docker builds |
+| `build_omnibioai_ecosystem.sh` | Full ecosystem build: checks every repo is clean and on `main` (via `ecosystem_status.sh`), runs the control-center coverage host and report, then builds and restarts `omnibioai-studio` with `docker compose`; posts a Discord alert on failure when `DISCORD_ALERT_WEBHOOK_URL` is set |
 
 ### Ecosystem Management
 
@@ -32,6 +33,8 @@ Developer utilities, automation scripts, and ecosystem management tools for the 
 |--------|-------------|
 | `ecosystem_status.sh` | Reports git branch and clean/dirty status across all discovered repositories under the machine root |
 | `check_unpushed_work.sh` | Focused specifically on "is anything at risk of being lost" — non-zero exit if any repo has unpushed *commits* (untracked/modified files alone don't fail it; unpushed commits are the real risk). Supports `--root`, `--json`, `--quiet` |
+| `sync_all_repos.sh` | Switches each listed repository to `main` and fast-forwards it to `origin/main`; skips repos with a dirty working tree and never force-updates |
+| `prepare_hipaa_audit.sh` | Prepares a clean audit baseline: fetches all repos, moves branches whose PR is merged (detected with `gh`) back to an up-to-date `main`, leaves unmerged or dirty branches untouched, and reports what still needs attention |
 | `backup-system-state.sh` | Daily backup of machine state that isn't in git — `.env` files, cloudflared config, systemd units, crontab — deliberately excludes `.ssh/`, `.aws/`, `.kube/`, `.gnupg/`, and other high-blast-radius credential paths |
 | `clock_count.sh` | Counts lines of code across the full ecosystem using `cloc` |
 | `run_coverage.sh` | Aggregates pytest coverage reports across all repos into `out/coverage/` |
@@ -80,6 +83,7 @@ remain outside this repository.
 | `set_public_visibility.sh` | Bulk-sets `visibility=public` on `omnibioai` org container packages via the GitHub API |
 | `set_packages_public.sh` | Lists all container packages in the `omnibioai` org and PATCHes any non-public ones to public |
 | `make_public_browser.py` | Playwright browser automation to set package visibility to public, for cases the REST API doesn't support (no visibility-update endpoint) |
+| `grant_package_access_browser.py` | Playwright browser automation that grants a repository a role on packages under *Manage Actions access*, which has no REST API endpoint. Defaults to giving `omnibioai-tool-images` **Write** on every `omnibioai-sif/*` package, adding the repository when it is not listed; resumable via `access_browser.log` |
 | `push_sifs.sh` | Pushes local `.sif` Singularity images to `ghcr.io/omnibioai/omnibioai-sif/<name>:arm64` via `oras`, skipping images already pushed |
 | `rebuild_ml_base_plugins.sh` | Rebuilds and pushes plugin images whose Dockerfiles build `FROM` a shared `omnibioai-ml-*` base image, after a base-image migration |
 | `update_ghcr_refs.sh` | Finds, and optionally replaces (with `.bak` backups), lingering `ghcr.io/man4ish` references across a repo |
@@ -148,6 +152,24 @@ python setup_beta_project.py --dry-run   # preview
 python setup_beta_project.py             # execute
 ```
 
+### Grant repository access on SIF packages
+```bash
+python3 make_public_browser.py --login     # once; saves gh_auth_state.json
+
+# Check on one package first (bedtools is already set, so expect "already_write")
+python3 grant_package_access_browser.py --only omnibioai-sif/bedtools
+
+# All omnibioai-sif/* packages; GH_TOKEN (read:packages) lists them via the API,
+# otherwise org_packages.txt from set_packages_public.sh is used
+export GH_TOKEN=<your_pat>
+caffeinate -i python3 grant_package_access_browser.py --continue-on-fail   # caffeinate: macOS only
+```
+
+Use `--repo`, `--role` (`read`/`write`/`admin`) and `--prefix` to target a
+different repository, role or package set. Leave the browser window alone
+while it runs. A failure saves `debug_<package>.png` and prints the page's
+buttons and dialogs; re-running skips packages already completed.
+
 ### Disable CI/CD across all repos
 ```bash
 bash disable_cicd.sh
@@ -164,7 +186,9 @@ registries and should be reviewed before execution:
 - `update_descriptions.sh` edits GitHub repository descriptions.
 - `update_topics.sh` changes GitHub repository topics.
 - `disable_cicd.sh` commits and pushes workflow changes across repositories.
-- `set_public_visibility.sh` and `set_packages_public.sh` change GHCR package visibility.
+- `set_public_visibility.sh`, `set_packages_public.sh` and `make_public_browser.py` change GHCR package visibility.
+- `grant_package_access_browser.py` changes which repositories can access GHCR packages.
+- `push_sifs.sh` and `build_all_tools.sh` push images to registries.
 - `migrate_public_images.sh` copies images between registries.
 - `delete_old_packages.sh` and `delete_packages_browser.py` delete packages. Use their dry-run mode first; deletion requires explicit confirmation.
 
@@ -191,9 +215,18 @@ pip install PyGithub requests
 pip install playwright
 python -m playwright install chromium
 
-# GitHub CLI (for update_topics.sh, update_descriptions.sh)
+# GitHub CLI (for update_topics.sh, update_descriptions.sh, prepare_hipaa_audit.sh)
 gh auth login
 ```
+
+### Running the tests
+
+```bash
+pip install -r requirements-dev.txt
+pytest          # settings in pytest.ini; fails below 98% coverage
+```
+
+Test files live in `tests/`; `pytest.ini` only collects from there.
 
 ---
 
