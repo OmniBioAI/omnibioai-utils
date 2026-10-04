@@ -1,0 +1,18 @@
+# Python caches and test/coverage output
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.coverage
+.coverage.*
+coverage.json
+htmlcov/
+
+# Local diagnostic output
+*.log
+debug_omnibioai-sif_*.png
+org_packages.txt
+README.diff
+readme-package-access.patch
+
+# Local browser authentication state; may contain credentials or tokens
+gh_auth_state.json
