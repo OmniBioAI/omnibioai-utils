@@ -153,6 +153,126 @@ class WorkerTests(unittest.TestCase):
         self.assertEqual(len(list(self.checkpoints(unit).glob("*.npz"))), 3)
         self.assertTrue(unit.output_dir.is_dir())
 
+    def interrupt_self_test(self):
+        with mock.patch.object(script, "self_retrieval_test", side_effect=RuntimeError("search crash")):
+            with self.assertRaisesRegex(RuntimeError, "search crash"):
+                self.run_unit()
+        self.assertEqual(json.loads((self.unit.output_dir / "finalization.json").read_text())
+                         ["stage"], "SELF_TEST_STARTED")
+
+    def embedding_snapshot(self):
+        return {p.name: (p.stat().st_mtime_ns, hashlib.sha256(p.read_bytes()).hexdigest())
+                for p in self.checkpoints().iterdir() if p.suffix in (".npy", ".npz")}
+
+    def test_complete_embedding_missing_index_resumes_without_embedding(self):
+        self.interrupt_self_test()
+        before = self.embedding_snapshot()
+        (self.unit.output_dir / "index.faiss").unlink()
+        model = FakeModel()
+        with mock.patch.object(script, "embed_with_checkpoints", side_effect=AssertionError("embedding")):
+            self.run_unit(model)
+        self.assertEqual(model.calls, [])
+        self.assertEqual(self.embedding_snapshot(), before)
+
+    def test_legacy_complete_assembly_is_adopted_without_rewriting(self):
+        self.interrupt_self_test()
+        (self.checkpoints() / "embedding_complete.json").unlink()
+        for name in ("index.faiss", "finalization.json", "pmid_map.json"):
+            (self.unit.output_dir / name).unlink()
+        before = self.embedding_snapshot()
+        with mock.patch.object(script, "embed_with_checkpoints", side_effect=AssertionError("embedding")):
+            self.run_unit()
+        self.assertEqual(self.embedding_snapshot(), before)
+
+    def test_committed_index_after_search_crash_skips_rebuild(self):
+        self.interrupt_self_test()
+        before = (self.unit.output_dir / "index.faiss").read_bytes()
+        with mock.patch.object(script.faiss, "IndexFlatIP", side_effect=AssertionError("rebuilt")), \
+             mock.patch.object(script.faiss, "write_index", side_effect=AssertionError("rewritten")):
+            self.run_unit()
+        self.assertEqual(self.hub.destination[f"{self.unit.remote_path}/index.faiss"], before)
+
+    def test_partial_or_uncommitted_index_is_rebuilt_without_embedding(self):
+        for partial in (False, True):
+            with self.subTest(partial=partial):
+                self.hub.destination.clear()
+                self.interrupt_self_test()
+                index_file = self.unit.output_dir / "index.faiss"
+                if partial:
+                    index_file.write_bytes(b"truncated native output")
+                else:
+                    state_file = self.unit.output_dir / "finalization.json"
+                    state = json.loads(state_file.read_text())
+                    state.pop("index_receipt")
+                    script.atomic_json(state_file, state)
+                (self.unit.output_dir / "index.faiss.abandoned.tmp").write_bytes(b"partial")
+                with mock.patch.object(script, "embed_with_checkpoints", side_effect=AssertionError("embedding")), \
+                     mock.patch.object(script.faiss, "write_index", wraps=faiss.write_index) as write:
+                    self.run_unit()
+                write.assert_called_once()
+
+    def test_interrupted_atomic_index_write_preserves_previous_file(self):
+        self.interrupt_self_test()
+        path = self.unit.output_dir / "index.faiss"
+        before = path.read_bytes()
+        def partial_write(index, name):
+            Path(name).write_bytes(b"partial")
+            raise KeyboardInterrupt()
+        with mock.patch.object(script.faiss, "write_index", side_effect=partial_write):
+            with self.assertRaises(KeyboardInterrupt):
+                script.atomic_faiss_index(script.faiss, None, path)
+        self.assertEqual(path.read_bytes(), before)
+        self.assertEqual(list(path.parent.glob("*.tmp")), [])
+
+    def test_finalization_build_write_and_reload_failures_resume(self):
+        for operation in ("IndexFlatIP", "write_index", "read_index"):
+            with self.subTest(operation=operation):
+                self.hub.destination.clear()
+                with mock.patch.object(script.faiss, operation, side_effect=RuntimeError("native failure")):
+                    with self.assertRaisesRegex(RuntimeError, "native failure"):
+                        self.run_unit()
+                before = self.embedding_snapshot()
+                model = FakeModel()
+                with mock.patch.object(script, "embed_with_checkpoints", side_effect=AssertionError("embedding")):
+                    self.run_unit(model)
+                self.assertEqual(model.calls, [])
+                self.assertEqual(self.embedding_snapshot(), before)
+
+    def test_changed_source_preserves_assembly_and_checkpoints(self):
+        self.interrupt_self_test()
+        before = self.embedding_snapshot()
+        with mock.patch.object(script, "load_unit_abstracts", return_value=(
+            ["changed"] * 5, list(map(str, range(5))),
+            {"source_files": 1, "source_documents": 5, "unique_pmid_count": 5,
+             "skipped_invalid_records": 0, "duplicate_pmids": 0},
+        )):
+            with self.assertRaises(script.IncompatibleCheckpoint):
+                self.run_unit()
+        self.assertEqual(self.embedding_snapshot(), before)
+
+    def test_vector_and_pmid_count_mismatch_fail_without_embedding(self):
+        self.interrupt_self_test()
+        before = self.embedding_snapshot()
+        pmid_file = self.unit.output_dir / "pmid_map.json"
+        original = pmid_file.read_bytes()
+        pmid_file.write_text(json.dumps(["0"]))
+        with mock.patch.object(script, "embed_with_checkpoints", side_effect=AssertionError("embedding")):
+            with self.assertRaisesRegex(ValueError, "PMID map"):
+                self.run_unit()
+        self.assertEqual(self.embedding_snapshot(), before)
+        pmid_file.write_bytes(original)
+        original_load = np.load
+        for shape in ((4, 1024), (5, 768)):
+            with self.subTest(shape=shape):
+                def wrong_shape(path, **kwargs):
+                    if str(path).endswith("assembled.npy"):
+                        return np.zeros(shape, dtype=np.float32)
+                    return original_load(path, **kwargs)
+                with mock.patch.object(script.np, "load", side_effect=wrong_shape):
+                    with self.assertRaisesRegex(ValueError, "shape/dtype"):
+                        self.run_unit()
+                self.assertEqual(self.embedding_snapshot(), before)
+
     def test_remote_complete_skip_without_local_manifest_or_source(self):
         """Skip embedding and downloading entirely when the remote already
         holds a verified-complete unit, marking it UPLOADED locally."""
@@ -171,8 +291,7 @@ class WorkerTests(unittest.TestCase):
         self.assertTrue(any("disk after unit" in m for m in messages))
 
     def test_source_download_and_cleanup_only_after_persisted_uploaded(self):
-        """Clean up checkpoints, downloaded source, and the output directory
-        only after the manifest has already persisted the UPLOADED status."""
+        """Retain embeddings; clean transient files only after durable UPLOADED."""
         removed = []
         real_remove = shutil.rmtree
         def observe_remove(path, *args, **kwargs):
@@ -188,11 +307,11 @@ class WorkerTests(unittest.TestCase):
             self.run_unit()
         downloaded = self.downloaded()
         self.assertEqual(removed, [p.resolve() for p in
-                                  (self.checkpoints(), downloaded, self.unit.output_dir)])
+                                  (downloaded, self.unit.output_dir)])
         self.assertEqual([c.kwargs["filename"] for c in self.source_calls()], list(self.unit.source_files))
         self.assertFalse(downloaded.exists())
         self.assertFalse(self.unit.output_dir.exists())
-        self.assertFalse(self.checkpoints().exists())
+        self.assertTrue(self.checkpoints().exists())
         self.assertTrue(script.MANIFEST_FILE.exists())
         self.assertEqual(self.manifest["shards"][self.unit.key]["self_retrieval"]["top1"], 1.0)
 
@@ -316,14 +435,14 @@ class WorkerTests(unittest.TestCase):
         """This reindex workflow uploads exclusively through
         api.upload_folder and never imports or references Xet/hf_xet, so
         publication cannot fail on a missing or incompatible hf_xet
-        installation; confirms hf_xet is genuinely absent in this
-        environment, matching the incident's restored environment."""
+        installation, regardless of whether it is installed locally."""
         source = Path(script.__file__).read_text() if getattr(script, "__file__", None) else None
         if source is None:
             source = (Path(__file__).resolve().parents[2] / "pubmed" / "reindex_1024_mac.py").read_text()
         self.assertNotIn("xet", source.lower())
-        import importlib.util as importlib_util
-        self.assertIsNone(importlib_util.find_spec("hf_xet"))
+        with mock.patch.dict("sys.modules", {"hf_xet": None}):
+            self.run_unit()
+        self.hub.api.upload_folder.assert_called_once()
 
     def test_verification_failures_never_delete_local_work(self):
         """Retain local work and keep the manifest at PASS (not UPLOADED)
@@ -357,7 +476,7 @@ class WorkerTests(unittest.TestCase):
         self.assertEqual(model.calls, [])
         self.assertEqual(self.hub.api.upload_folder.call_count, 1)
         self.assertFalse(self.downloaded().exists())
-        self.assertFalse(self.checkpoints().exists())
+        self.assertTrue(self.checkpoints().exists())
 
     def test_real_manifest_fsync_failure_does_not_allow_cleanup(self):
         """Leave the manifest at PASS and retain local work when the

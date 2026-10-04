@@ -4,8 +4,9 @@
 Resumable PubMed 1024-D reindex on Apple Silicon MPS.
 
 Pipeline per indexing unit (general shard or domain):
-    check remote -> obtain source -> embed -> validate -> FAISS -> self-retrieval
-    -> save -> upload -> verify -> persist UPLOADED -> clean worker files
+    check remote -> obtain source -> embed -> validate -> FAISS -> atomic save
+    -> self-retrieval -> upload -> verify -> persist UPLOADED
+    Embedding checkpoints/assemblies are retained as durable recovery assets.
 
 Author: Manish Kumar
 """
@@ -234,17 +235,72 @@ def write_checkpoint(path, vectors, settings, seconds):
             temporary.unlink(missing_ok=True)
 
 
+def resume_completed_embeddings(model, chunk, texts, pmids):
+    """Adopt legacy assembled files only after checking every source-bound block.
+
+    Read-only throughout: a mismatched source never truncates assembled.npy.
+    Block comparisons also detect an assembly interrupted before its final flush.
+    """
+    directory = OUTPUT_ROOT / "_embedding_checkpoints" / chunk
+    settings = checkpoint_settings(model, chunk, texts, pmids)
+    receipt_path = directory / "embedding_complete.json"
+    assembled = directory / "assembled.npy"
+    if receipt_path.exists():
+        receipt = json.loads(receipt_path.read_text())
+        if receipt["settings"] != settings:
+            raise IncompatibleCheckpoint("Completed embedding settings/source changed")
+        name = receipt["assembled_file"]
+        if Path(name).name != name:
+            raise ValueError("Invalid assembled filename")
+        assembled = directory / name
+    vectors = None
+    if assembled.exists():
+        vectors = np.load(assembled, mmap_mode="r", allow_pickle=False)
+        if vectors.shape != (len(texts), DIMENSION) or vectors.dtype != np.float32:
+            raise ValueError("Assembled vector shape/dtype mismatch")
+    seconds = 0.0
+    complete = vectors is not None
+    for block, start in enumerate(range(0, len(texts), CHECKPOINT_ROWS), 1):
+        stop = min(start + CHECKPOINT_ROWS, len(texts))
+        path = directory / f"block_{block:06d}.npz"
+        if not path.exists():
+            complete = False
+            continue
+        try:
+            saved, duration = read_checkpoint(path, {**settings, "start": start, "stop": stop})
+        except IncompatibleCheckpoint:
+            raise
+        except (OSError, ValueError, KeyError):
+            complete = False
+            continue
+        seconds += duration
+        if vectors is not None and not np.array_equal(saved, vectors[start:stop]):
+            complete = False
+    if not complete:
+        return None
+    # Legacy adoption publishes only a small receipt; never rewrites the vectors.
+    atomic_json(receipt_path, {"settings": settings, "assembled_file": assembled.name,
+                               "embedding_seconds": seconds})
+    return vectors, seconds
+
+
 def embed_with_checkpoints(model, chunk, texts, pmids):
     checkpoint_dir = OUTPUT_ROOT / "_embedding_checkpoints" / chunk
     checkpoint_dir.mkdir(parents=True, exist_ok=True)
     settings = checkpoint_settings(model, chunk, texts, pmids)
     total = len(texts)
     blocks = (total + CHECKPOINT_ROWS - 1) // CHECKPOINT_ROWS
-    # The assembled matrix is disposable, never a resume checkpoint. Mapping
-    # it on disk avoids a second large RAM allocation for multi-file domains.
+    resumed = resume_completed_embeddings(model, chunk, texts, pmids)
+    if resumed is not None:
+        return resumed
+    # Assemble into a NEW file. Keep any previous assembled.npy untouched,
+    # including when source/settings validation subsequently refuses the job.
+    handle = tempfile.NamedTemporaryFile(dir=checkpoint_dir, prefix="assembled.",
+                                         suffix=".npy", delete=False)
+    assembled_path = Path(handle.name)
+    handle.close()
     embeddings = np.lib.format.open_memmap(
-        checkpoint_dir / "assembled.npy", mode="w+", dtype=np.float32,
-        shape=(total, DIMENSION),
+        assembled_path, mode="w+", dtype=np.float32, shape=(total, DIMENSION),
     )
     completed = 0
     embed_seconds = 0.0
@@ -311,7 +367,18 @@ def embed_with_checkpoints(model, chunk, texts, pmids):
             f"cumulative throughput={cumulative_rate:.2f} abs/sec; "
             f"ETA={(total - completed) / cumulative_rate / 3600:.2f} h")
 
-    # Preserve timing metadata across resumes by summing committed block times.
+    embeddings.flush()
+    with assembled_path.open("rb") as handle:
+        os.fsync(handle.fileno())
+    # Publish the first assembly under the legacy name, but never replace one.
+    legacy = checkpoint_dir / "assembled.npy"
+    if not legacy.exists():
+        os.rename(assembled_path, legacy)
+        assembled_path = legacy
+    atomic_json(checkpoint_dir / "embedding_complete.json", {
+        "settings": settings, "assembled_file": assembled_path.name,
+        "embedding_seconds": embed_seconds,
+    })
     return embeddings, embed_seconds
 
 
@@ -382,6 +449,33 @@ def atomic_json(path, payload):
     finally:
         if temporary is not None:
             temporary.unlink(missing_ok=True)
+
+
+def file_receipt(path):
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for block in iter(lambda: handle.read(8 * 1024 * 1024), b""):
+            digest.update(block)
+    return {"size": path.stat().st_size, "sha256": digest.hexdigest()}
+
+
+def atomic_faiss_index(module, index, path):
+    """Only rename a fully flushed native write; abandoned .tmp files are ignored."""
+    with tempfile.NamedTemporaryFile(dir=path.parent, prefix=path.name + ".",
+                                     suffix=".tmp", delete=False) as handle:
+        temporary = Path(handle.name)
+    try:
+        module.write_index(index, str(temporary))
+        with temporary.open("rb") as handle:
+            os.fsync(handle.fileno())
+        os.replace(temporary, path)
+        directory_fd = os.open(path.parent, os.O_RDONLY)
+        try:
+            os.fsync(directory_fd)
+        finally:
+            os.close(directory_fd)
+    finally:
+        temporary.unlink(missing_ok=True)
 
 
 def free_disk_gib(path):
@@ -774,6 +868,9 @@ def local_artifacts_complete(unit):
             pmids = json.load(handle)
         if not isinstance(pmids, list) or len(pmids) != metadata["pmid_count"]:
             return None
+        if metadata.get("index_receipt") is not None:
+            if file_receipt(output_dir / "index.faiss") != metadata["index_receipt"]:
+                return None
         faiss_module = load_faiss()
         index = faiss_module.read_index(str(output_dir / "index.faiss"))
         if index.d != DIMENSION or index.ntotal != metadata["vector_count"]:
@@ -962,7 +1059,9 @@ def load_unit_abstracts(unit, source_paths):
 
 def cleanup_worker_files(unit, downloaded_source=None):
     # Call ONLY after remote verification and successful UPLOADED persistence.
-    paths = [OUTPUT_ROOT / "_embedding_checkpoints" / unit.key]
+    # Embedding checkpoints and assembled vectors remain durable recovery assets,
+    # even after publication. Never delete them during finalization cleanup.
+    paths = []
     if downloaded_source is not None:
         paths.append(downloaded_source)
     paths.append(unit.output_dir)
@@ -1114,16 +1213,14 @@ def _process_unit(model, api, unit, manifest):
             "No usable abstracts"
         )
 
-    torch.mps.empty_cache()
-
-    log(
-        f"{chunk}: "
-        f"embedding start"
-    )
-
-    embeddings, embed_seconds = embed_with_checkpoints(
-        model, chunk, texts, pmids,
-    )
+    resumed = resume_completed_embeddings(model, chunk, texts, pmids)
+    if resumed is None:
+        torch.mps.empty_cache()
+        log(f"{chunk}: embedding start")
+        embeddings, embed_seconds = embed_with_checkpoints(model, chunk, texts, pmids)
+    else:
+        log(f"{chunk}: embedding complete; resuming finalization without encoding")
+        embeddings, embed_seconds = resumed
 
     throughput = (
         usable
@@ -1145,79 +1242,73 @@ def _process_unit(model, api, unit, manifest):
         embeddings
     )
 
+    if embeddings.shape != (usable, DIMENSION) or len(pmids) != usable:
+        raise ValueError("Vector/PMID/source count mismatch")
+    settings = checkpoint_settings(model, chunk, texts, pmids)
+    pmid_file = output_dir / "pmid_map.json"
+    if pmid_file.exists():
+        existing_pmids = json.loads(pmid_file.read_text())
+        if existing_pmids != pmids:
+            raise ValueError("PMID map count/order/source mismatch")
+    else:
+        atomic_json(pmid_file, pmids)
+
+    index_file = output_dir / "index.faiss"
+    metadata_file = output_dir / "metadata.json"
+    finalization_file = output_dir / "finalization.json"
+    finalization = {"settings": settings, "stage": "VECTORS_AND_PMIDS_READY"}
+    if finalization_file.exists():
+        finalization = json.loads(finalization_file.read_text())
+        if finalization["settings"] != settings:
+            raise IncompatibleCheckpoint("Finalization source/settings changed")
+
+    def stage(name, **values):
+        finalization.update(values)
+        finalization["stage"] = name
+        atomic_json(finalization_file, finalization)
+        manifest["shards"][chunk]["finalization_stage"] = name
+        save_manifest(manifest)
+        log(f"{chunk}: finalization {name}")
+
+    stage("VECTORS_AND_PMIDS_READY")
     faiss_module = load_faiss()
-    index = faiss_module.IndexFlatIP(
-        DIMENSION
-    )
+    # Bound native OpenMP search parallelism on macOS, where FAISS and MPS
+    # coexist in this worker. This also avoids severe oversubscription.
+    if sys.platform == "darwin":
+        faiss_module.omp_set_num_threads(1)
+    index = None
+    receipt = finalization.get("index_receipt")
+    if receipt and index_file.exists() and file_receipt(index_file) == receipt:
+        stage("INDEX_RELOAD_STARTED")
+        index = faiss_module.read_index(str(index_file))
+        if index.d != DIMENSION or index.ntotal != usable:
+            raise ValueError("Committed FAISS dimension/count mismatch")
+        log(f"{chunk}: committed FAISS index reused")
+    if index is None:
+        stage("FAISS_BUILD_STARTED", index_receipt=None)
+        index = faiss_module.IndexFlatIP(DIMENSION)
+        for start in range(0, usable, CHECKPOINT_ROWS):
+            index.add(embeddings[start:start + CHECKPOINT_ROWS])
+        if index.ntotal != usable or index.d != DIMENSION:
+            raise RuntimeError("FAISS/PMID count or dimension mismatch")
+        stage("INDEX_WRITE_STARTED")
+        atomic_faiss_index(faiss_module, index, index_file)
+        stage("INDEX_WRITTEN", index_receipt=file_receipt(index_file))
+        # Reload BEFORE recording PASS; a write/reload crash remains resumable.
+        del index
+        stage("INDEX_RELOAD_STARTED")
+        index = faiss_module.read_index(str(index_file))
+        if index.d != DIMENSION or index.ntotal != usable:
+            raise ValueError("Reload FAISS dimension/count mismatch")
 
-    for start in range(0, len(embeddings), CHECKPOINT_ROWS):
-        index.add(embeddings[start:start + CHECKPOINT_ROWS])
-
-    if (
-        index.ntotal
-        != len(pmids)
-    ):
-        raise RuntimeError(
-            "FAISS/PMID "
-            "count mismatch"
-        )
-
-    log(f"{unit.key}: final vector count={index.ntotal:,}; PMID map count={len(pmids):,}")
-
-    self_test = (
-        self_retrieval_test(
-            index,
-            embeddings,
-        )
-    )
-
-    log(
-        f"{chunk}: self "
-        f"Top1="
-        f"{self_test['top1']:.2%} "
-        f"Top5="
-        f"{self_test['top5']:.2%} "
-        f"Top10="
-        f"{self_test['top10']:.2%}"
-    )
-
-    if (
-        self_test["top1"]
-        != 1.0
-    ):
-        raise RuntimeError(
-            "Self-retrieval "
-            "Top-1 failed"
-        )
-
-    index_file = (
-        output_dir
-        / "index.faiss"
-    )
-
-    pmid_file = (
-        output_dir
-        / "pmid_map.json"
-    )
-
-    metadata_file = (
-        output_dir
-        / "metadata.json"
-    )
-
-    faiss_module.write_index(
-        index,
-        str(index_file),
-    )
-
-    with pmid_file.open(
-        "w",
-        encoding="utf-8",
-    ) as handle:
-        json.dump(
-            pmids,
-            handle,
-        )
+    log(f"{chunk}: final vector count={index.ntotal:,}; PMID map count={len(pmids):,}")
+    stage("SELF_TEST_STARTED")
+    self_test = self_retrieval_test(index, embeddings)
+    log(f"{chunk}: self Top1={self_test['top1']:.2%} "
+        f"Top5={self_test['top5']:.2%} Top10={self_test['top10']:.2%}")
+    if self_test["top1"] != 1.0:
+        raise RuntimeError("Self-retrieval Top-1 failed")
+    stage("VALIDATED", self_retrieval=self_test)
 
     metadata = {
         "chunk": unit.name,
@@ -1229,6 +1320,8 @@ def _process_unit(model, api, unit, manifest):
             if downloaded_source is not None else unit.source_revision
         ),
         "source_origin": "worker_download" if downloaded_source is not None else "preexisting_local",
+        "embedding_settings": settings,
+        "index_receipt": finalization["index_receipt"],
         **source_stats,
         "usable_abstracts": usable,
         "model": MODEL_NAME,
@@ -1268,38 +1361,8 @@ def _process_unit(model, api, unit, manifest):
         "completed_at": now(),
     }
 
-    with metadata_file.open(
-        "w",
-        encoding="utf-8",
-    ) as handle:
-        json.dump(
-            metadata,
-            handle,
-            indent=2,
-        )
-
-    # Release the first full index before allocating its validation reload.
+    atomic_json(metadata_file, metadata)
     del index
-    reload_index = (
-        faiss_module.read_index(
-            str(index_file)
-        )
-    )
-
-    if reload_index.d != DIMENSION:
-        raise RuntimeError(
-            "Reload dimension "
-            "validation failed"
-        )
-
-    if (
-        reload_index.ntotal
-        != len(pmids)
-    ):
-        raise RuntimeError(
-            "Reload vector count "
-            "validation failed"
-        )
 
     manifest[
         "shards"
@@ -1313,7 +1376,8 @@ def _process_unit(model, api, unit, manifest):
         manifest
     )
 
-    _publish_unit(api, unit, manifest, downloaded_source, embeddings, reload_index)
+    stage("UPLOAD_STARTED")
+    _publish_unit(api, unit, manifest, downloaded_source, embeddings)
 
     del texts
     del pmids
