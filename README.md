@@ -136,7 +136,7 @@ only after reviewing the build results and registry target.
 ### Run coverage across all repos
 ```bash
 bash run_coverage.sh
-# Output: ~/Desktop/machine/out/coverage/
+# Output: ${OMNIBIOAI_ROOT:-<ecosystem-root>}/out/coverage/
 ```
 
 ### Update all GitHub repo descriptions and topics
@@ -257,7 +257,7 @@ Test files live in `tests/`; `pytest.ini` only collects from there.
 These are the intended schedules, not an installer. Confirm that each
 referenced repository and script exists on the target machine before adding
 entries to crontab. Most scripts assume the default root
-`~/Desktop/machine`; use their documented arguments or environment variables
+`${OMNIBIOAI_ROOT:-<ecosystem-root>}`; use their documented arguments or environment variables
 where available when deploying on another host.
 
 | Time | Script | Purpose |

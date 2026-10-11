@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/ecosystem_path.sh"
 #
 # check_platform_workflows.sh
 #
@@ -29,7 +30,7 @@
 
 set -uo pipefail
 
-MACHINE_DIR="${1:-$HOME/Desktop/machine}"
+MACHINE_DIR="${1:-$OMNIBIOAI_ROOT}"
 # Falls back to the gh CLI's own stored credentials (gh auth login) when
 # GH_TOKEN isn't exported -- cron runs with a minimal environment, so this
 # is what lets this script work unattended instead of failing silently

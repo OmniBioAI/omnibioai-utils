@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/ecosystem_path.sh"
 # utils/ecosystem_status.sh
 # Check git status for all repos in the OmniBioAI ecosystem
 # Usage: bash utils/ecosystem_status.sh [root_dir]
-# Default root: ~/Desktop/machine
+# Default root: $OMNIBIOAI_ROOT
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 DEFAULT_ROOT="$(cd -- "$SCRIPT_DIR/.." && pwd)"

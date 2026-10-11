@@ -1,4 +1,5 @@
 #!/bin/bash
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/ecosystem_path.sh"
 # check_unpushed_work.sh
 #
 # Cross-repo health check: scans every git repo under ROOT for uncommitted
@@ -20,7 +21,7 @@
 
 set -uo pipefail
 
-ROOT="/home/manish/Desktop/machine"
+ROOT="$OMNIBIOAI_ROOT"
 JSON_OUT=""
 QUIET=false
 

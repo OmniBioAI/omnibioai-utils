@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/ecosystem_path.sh"
 # backup-system-state.sh — Daily backup of spark-70f0's non-git system state
 #
 # Backs up: every real .env file across the ecosystem repos, a fresh
@@ -41,7 +42,7 @@
 
 set -euo pipefail
 
-MACHINE_DIR="/home/manish/Desktop/machine"
+MACHINE_DIR="$OMNIBIOAI_ROOT"
 BACKUP_DIR="${MACHINE_DIR}/work/backups/system-state"
 REPO_DIR="/home/manish/.omnibioai-system-backups-repo"
 PASSPHRASE_FILE="/home/manish/.omnibioai-config-backup-passphrase"

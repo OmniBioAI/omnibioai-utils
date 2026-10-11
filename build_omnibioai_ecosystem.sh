@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/ecosystem_path.sh"
 # utils/build_omnibioai_ecosystem.sh
 #
 # Orchestrates a full ecosystem build:
@@ -8,11 +9,11 @@
 #   4. Build and (re)start omnibioai-studio via docker compose
 #
 # Usage: bash omnibioai-utils/build_omnibioai_ecosystem.sh [root_dir]
-# Default root: ~/Desktop/machine
+# Default root: "$OMNIBIOAI_ROOT"
 
 set -euo pipefail
 
-ROOT="${1:-$HOME/Desktop/machine}"
+ROOT="${1:-$OMNIBIOAI_ROOT}"
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'

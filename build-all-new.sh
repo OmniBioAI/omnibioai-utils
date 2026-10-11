@@ -1,7 +1,8 @@
 #!/bin/bash
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/ecosystem_path.sh"
 # build-all-new.sh
 
-BASE=/home/manish/Desktop/machine
+BASE="$OMNIBIOAI_ROOT"
 REGISTRY=ghcr.io/omnibioai
 
 declare -A SERVICES=(
