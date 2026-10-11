@@ -1,6 +1,7 @@
 #!/bin/bash
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/ecosystem_path.sh"
 set -e
-BASE=$HOME/Desktop/machine
+BASE="$OMNIBIOAI_ROOT"
 echo 'Starting OmniBioAI backend APIs...'
 
 # Workflow bundles backend

@@ -1,9 +1,10 @@
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/ecosystem_path.sh"
 
 #!/usr/bin/env bash
 
 set -u
 
-ROOT="${1:-$HOME/Desktop/machine}"
+ROOT="${1:-$OMNIBIOAI_ROOT}"
 
 REPOS=(
     "omnibioai-api-gateway"

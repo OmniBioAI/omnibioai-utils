@@ -1,13 +1,14 @@
 #!/usr/bin/env bash
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/ecosystem_path.sh"
 set -euo pipefail
 
 SESSION="omnibioai"
 
 # Base paths (repos)
-OMNI_CORE=~/Desktop/machine/omnibioai
-OMNI_TES=~/Desktop/machine/omnibioai-tes
-OMNI_TOOL=~/Desktop/machine/omnibioai-toolserver
-OMNI_LIMS=~/Desktop/machine/omnibioai-lims
+OMNI_CORE="$OMNIBIOAI_ROOT"/omnibioai
+OMNI_TES="$OMNIBIOAI_ROOT"/omnibioai-tes
+OMNI_TOOL="$OMNIBIOAI_ROOT"/omnibioai-toolserver
+OMNI_LIMS="$OMNIBIOAI_ROOT"/omnibioai-lims
 
 # Optional: load your env (uncomment + set the right file if you use one)
 # [ -f ~/.bashrc ] && source ~/.bashrc

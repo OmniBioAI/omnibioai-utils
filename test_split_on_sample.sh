@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/ecosystem_path.sh"
 set -euo pipefail
 
-SRC_REAL="${SRC_REAL:-/home/manish/Desktop/machine/omnibioai-data/PubMed/Abstracts/_general_corpus}"
+SRC_REAL="${SRC_REAL:-$OMNIBIOAI_ROOT/omnibioai-data/PubMed/Abstracts/_general_corpus}"
 SAMPLE_SIZE=20
 TEST_ROOT="/tmp/gc_split_test_$$"
 SRC="${TEST_ROOT}/_general_corpus"

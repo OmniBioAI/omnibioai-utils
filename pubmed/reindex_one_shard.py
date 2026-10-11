@@ -1,3 +1,4 @@
+import os
 #!/usr/bin/env python3
 
 """
@@ -22,7 +23,7 @@ from sentence_transformers import SentenceTransformer
 # Configuration
 SHARD = "_general_corpus_chunk100"
 
-PUBMED_DIR = Path("/home/manish/Desktop/machine/data/PubMed")
+PUBMED_DIR = Path(os.path.join(os.environ.get("OMNIBIOAI_ROOT", str(Path(__file__).resolve().parents[2])), "data", "PubMed"))
 
 INPUT_DIR = PUBMED_DIR / "Abstracts" / SHARD
 STAGING_DIR = PUBMED_DIR / "Index" / "_reindex_staging" / SHARD
