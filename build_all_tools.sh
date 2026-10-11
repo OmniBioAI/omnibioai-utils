@@ -1,7 +1,8 @@
 #!/bin/bash
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/ecosystem_path.sh"
 set -e
 
-MACHINE_DIR="$HOME/Desktop/machine"
+MACHINE_DIR="$OMNIBIOAI_ROOT"
 ECR="068155050939.dkr.ecr.us-east-1.amazonaws.com/omnibioai"
 REGION="us-east-1"
 JOB_QUEUE="arn:aws:batch:us-east-1:068155050939:job-queue/omnibioai-jq"

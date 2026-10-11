@@ -1,10 +1,11 @@
 #!/bin/bash
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/ecosystem_path.sh"
 # OmniBioAI Cython compilation script
 # Compiles all HIGH priority files across all repos
 # Run before building Docker images
 
 set -e
-MACHINE=~/Desktop/machine
+MACHINE="$OMNIBIOAI_ROOT"
 LOG=$MACHINE/out/cython_build.log
 mkdir -p $MACHINE/out
 
