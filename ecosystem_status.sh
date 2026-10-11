@@ -4,7 +4,9 @@
 # Usage: bash utils/ecosystem_status.sh [root_dir]
 # Default root: ~/Desktop/machine
 
-ROOT="${1:-$HOME/Desktop/machine}"
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+DEFAULT_ROOT="$(cd -- "$SCRIPT_DIR/.." && pwd)"
+ROOT="${1:-${OMNIBIOAI_ROOT:-$DEFAULT_ROOT}}"
 
 # Colors
 RED='\033[0;31m'
