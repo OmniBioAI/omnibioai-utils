@@ -1,4 +1,5 @@
 #!/bin/bash
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/ecosystem_path.sh"
 # ============================================
 # OmniBioAI Reference Data Restore Script
 # Restores all reference data from source
@@ -7,8 +8,36 @@
 
 set -e
 
-RESTORE_DIR=${1:-/media/manish/OmniBioAI-SIFs/reference}
-mkdir -p $RESTORE_DIR
+STORAGE_ROOT="${OMNIBIOAI_STORAGE_ROOT:-/media/manish/OmniBioAI-SIFs}"
+RESTORE_DIR="${1:-$STORAGE_ROOT/reference}"
+SIF_DIR="$STORAGE_ROOT/sif"
+FAISS_DIR="$STORAGE_ROOT/PubMed/Index"
+ABSTRACTS_DIR="$STORAGE_ROOT/PubMed/Abstracts"
+
+die() { echo "ERROR: $*" >&2; exit 1; }
+is_mounted_storage() {
+    command -v findmnt >/dev/null 2>&1 || die "findmnt is required to verify mounted storage"
+    findmnt -T "$STORAGE_ROOT" >/dev/null 2>&1 || die "storage is not mounted: $STORAGE_ROOT"
+}
+check_source_dir() {
+    local path="$1"
+    [[ -d "$path" ]] || die "required storage directory is missing: $path"
+}
+check_link_target() {
+    local path="$1" target="$2"
+    if [[ -e "$path" && ! -L "$path" ]]; then die "destination already exists and is not a symlink: $path"; fi
+    if [[ -L "$path" && "$(readlink "$path")" != "$target" ]]; then die "destination symlink points elsewhere: $path"; fi
+}
+
+# Preflight performs all checks before any directory, download, or symlink mutation.
+is_mounted_storage
+check_source_dir "$STORAGE_ROOT"
+check_link_target "$OMNIBIOAI_ROOT/data/reference" "$RESTORE_DIR"
+check_link_target "$OMNIBIOAI_ROOT/data/PubMed" "$STORAGE_ROOT/PubMed"
+check_link_target "$OMNIBIOAI_ROOT/data/sif" "$SIF_DIR"
+[[ -e "$OMNIBIOAI_ROOT/data" && ! -d "$OMNIBIOAI_ROOT/data" ]] && die "data destination is not a directory"
+
+mkdir -p "$RESTORE_DIR"
 
 echo "$(date): Starting reference data restore to $RESTORE_DIR"
 
@@ -101,7 +130,6 @@ echo "✅ dbSNP downloaded"
 # ============================================
 echo "Downloading SIF images from HuggingFace..."
 
-SIF_DIR=/media/manish/OmniBioAI-SIFs/sif
 mkdir -p $SIF_DIR
 
 huggingface-cli download \
@@ -116,7 +144,6 @@ echo "✅ SIF images downloaded"
 # ============================================
 echo "Downloading FAISS indexes..."
 
-FAISS_DIR=/media/manish/OmniBioAI-SIFs/PubMed/Index
 mkdir -p $FAISS_DIR
 
 huggingface-cli download \
@@ -131,7 +158,6 @@ echo "✅ FAISS indexes downloaded"
 # ============================================
 echo "Downloading PubMed abstracts..."
 
-ABSTRACTS_DIR=/media/manish/OmniBioAI-SIFs/PubMed/Abstracts
 mkdir -p $ABSTRACTS_DIR
 
 huggingface-cli download \
@@ -146,16 +172,16 @@ echo "✅ PubMed abstracts downloaded"
 # ============================================
 echo "Creating symlinks..."
 
-mkdir -p ~/Desktop/machine/data
+mkdir -p "$OMNIBIOAI_ROOT/data"
 
-ln -sfn "$RESTORE_DIR" ~/Desktop/machine/data/reference
-ln -sfn /media/manish/OmniBioAI-SIFs/PubMed ~/Desktop/machine/data/PubMed
-ln -sfn /media/manish/OmniBioAI-SIFs/sif ~/Desktop/machine/data/sif
+[[ -L "$OMNIBIOAI_ROOT/data/reference" ]] || ln -s "$RESTORE_DIR" "$OMNIBIOAI_ROOT/data/reference"
+[[ -L "$OMNIBIOAI_ROOT/data/PubMed" ]] || ln -s "$STORAGE_ROOT/PubMed" "$OMNIBIOAI_ROOT/data/PubMed"
+[[ -L "$OMNIBIOAI_ROOT/data/sif" ]] || ln -s "$SIF_DIR" "$OMNIBIOAI_ROOT/data/sif"
 
 echo "✅ Symlinks created:"
-echo "   ~/Desktop/machine/data/reference -> $RESTORE_DIR"
-echo "   ~/Desktop/machine/data/PubMed    -> /media/manish/OmniBioAI-SIFs/PubMed"
-echo "   ~/Desktop/machine/data/sif       -> /media/manish/OmniBioAI-SIFs/sif"
+echo "   "$OMNIBIOAI_ROOT"/data/reference -> $RESTORE_DIR"
+echo "   $OMNIBIOAI_ROOT/data/PubMed    -> $STORAGE_ROOT/PubMed"
+echo "   $OMNIBIOAI_ROOT/data/sif       -> $SIF_DIR"
 
 echo ""
 echo "$(date): ✅ ALL DATA RESTORED!"
