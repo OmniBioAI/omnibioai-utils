@@ -1,11 +1,12 @@
 #!/bin/bash
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/ecosystem_path.sh"
 set -e
 
 echo "=============================="
 echo "Starting OmniBioAI stack"
 echo "=============================="
 
-ROOT=~/Desktop/machine
+ROOT="$OMNIBIOAI_ROOT"
 
 # ----------------------------
 # Start omnibioai-tes

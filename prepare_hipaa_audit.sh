@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/ecosystem_path.sh"
 set -uo pipefail
 
-ROOT="${1:-$HOME/Desktop/machine}"
+ROOT="${1:-$OMNIBIOAI_ROOT}"
 
 echo
 echo "=============================================================="

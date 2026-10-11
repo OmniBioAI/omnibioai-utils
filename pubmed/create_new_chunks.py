@@ -8,8 +8,8 @@ import os
 from pathlib import Path
 from datetime import datetime
 
-DATA_DIR = Path("/home/manish/Desktop/machine/data/PubMed/Abstracts")
-STATE_FILE = Path("/home/manish/Desktop/machine/data/PubMed/sync_state.json")
+DATA_DIR = Path(os.path.join(os.environ.get("OMNIBIOAI_ROOT", str(Path(__file__).resolve().parents[2])), "data", "PubMed", "Abstracts"))
+STATE_FILE = Path(os.path.join(os.environ.get("OMNIBIOAI_ROOT", str(Path(__file__).resolve().parents[2])), "data", "PubMed", "sync_state.json"))
 CHUNK_SIZE = 500000
 
 def get_updated_pmids():

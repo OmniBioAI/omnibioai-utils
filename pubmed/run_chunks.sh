@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/ecosystem_path.sh"
 # run_chunks.sh
 # Runs embedding_engine.py over each _general_corpus_chunk* study,
 # capping concurrency to avoid repeating the OOM/swap situation.
 
 set -euo pipefail
 
-PARENT="/home/manish/Desktop/machine/omnibioai-data/PubMed/Abstracts"
+PARENT="$OMNIBIOAI_ROOT/omnibioai-data/PubMed/Abstracts"
 CHUNK_PREFIX="_general_corpus_chunk"
 MAX_CONCURRENT=1   # tune based on observed RSS per chunk; start conservative
 EMBED_MODEL="pubmedbert"

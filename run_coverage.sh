@@ -1,5 +1,6 @@
 #!/bin/bash
-MACHINE=~/Desktop/machine
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/ecosystem_path.sh"
+MACHINE="$OMNIBIOAI_ROOT"
 OUT=$MACHINE/out/coverage
 mkdir -p $OUT
 find $MACHINE -name "coverage.json" -exec chmod 666 {} \; 2>/dev/null
@@ -107,7 +108,7 @@ merged = {
     }
 }
 
-out = os.path.expanduser("~/Desktop/machine/out/coverage/omnibioai.json")
+out = os.path.join(os.environ.get("OMNIBIOAI_ROOT", ""), "out/coverage/omnibioai.json")
 with open(out, "w") as f:
     json.dump(merged, f, indent=2)
 print(f"  ✅ omnibioai merged: {total_covered}/{total_stmts} = {total_pct:.2f}%")
@@ -121,7 +122,7 @@ echo ""
 python3 - <<'EOF'
 import json, os, glob
 
-out_dir   = os.path.expanduser("~/Desktop/machine/out/coverage")
+out_dir   = os.path.join(os.environ.get("OMNIBIOAI_ROOT", ""), "out/coverage")
 SKIP      = {"omnibioai-services.json", "omnibioai-plugins.json"}
 THRESHOLD = 90.0
 

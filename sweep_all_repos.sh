@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/ecosystem_path.sh"
 set -uo pipefail
 
 # Scans every sibling repo under MACHINE_DIR for leftover ghcr.io/man4ish
@@ -6,7 +7,7 @@ set -uo pipefail
 # same exclusions for release/, obsolete/, node_modules/, work/, *.log etc).
 # Prints a per-repo summary so you can decide where to actually apply the fix.
 
-MACHINE_DIR="${1:-$HOME/Desktop/machine}"
+MACHINE_DIR="${1:-$OMNIBIOAI_ROOT}"
 UPDATE_SCRIPT="$(cd "$(dirname "$0")" && pwd)/update_ghcr_refs.sh"
 
 if [ ! -f "$UPDATE_SCRIPT" ]; then

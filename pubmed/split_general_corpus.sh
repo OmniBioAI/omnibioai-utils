@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/ecosystem_path.sh"
 # split_general_corpus.sh
 # Splits _general_corpus/*.json into chunk subdirectories of CHUNK_SIZE files each,
 # so ragbio.embeddings.embedding_engine can be run per-chunk via --study <chunk_name>
@@ -6,7 +7,7 @@
 
 set -euo pipefail
 
-SRC="/home/manish/Desktop/machine/omnibioai-data/PubMed/Abstracts/_general_corpus"
+SRC="$OMNIBIOAI_ROOT/omnibioai-data/PubMed/Abstracts/_general_corpus"
 PARENT="$(dirname "$SRC")"
 CHUNK_SIZE=500000
 CHUNK_PREFIX="_general_corpus_chunk"

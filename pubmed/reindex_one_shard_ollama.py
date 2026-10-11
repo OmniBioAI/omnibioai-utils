@@ -1,3 +1,4 @@
+import os
 #!/usr/bin/env python3
 
 """
@@ -18,7 +19,7 @@ import requests
 SHARD = "_general_corpus_chunk100"
 
 PUBMED_DIR = Path(
-    "/home/manish/Desktop/machine/data/PubMed"
+    os.path.join(os.environ.get("OMNIBIOAI_ROOT", str(Path(__file__).resolve().parents[2])), "data", "PubMed")
 )
 
 INPUT_DIR = PUBMED_DIR / "Abstracts" / SHARD

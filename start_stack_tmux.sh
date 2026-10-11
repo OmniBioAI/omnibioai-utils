@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/ecosystem_path.sh"
 set -euo pipefail
 
-ROOT="$HOME/Desktop/machine"
+ROOT="$OMNIBIOAI_ROOT"
 UTILS="$ROOT/utils/kill_port.sh"
 
 # Ports
