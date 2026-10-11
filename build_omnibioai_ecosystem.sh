@@ -99,7 +99,7 @@ ok "✓ All repos clean and on main. Proceeding to Step 2."
 # ---------------------------------------------------------------------------
 step "Step 2/4: Running coverage host (omnibioai-control-center/scripts/run_coverage_host.py)"
 
-if ! python "$ROOT/omnibioai-control-center/scripts/run_coverage_host.py"; then
+if ! python "$ROOT/omnibioai-control-center/scripts/run_coverage_host.py" --root "$ROOT"; then
     fail "run_coverage_host.py failed. Aborting before generating report."
 fi
 
