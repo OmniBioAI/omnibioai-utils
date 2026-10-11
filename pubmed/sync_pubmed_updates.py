@@ -4,14 +4,15 @@ OmniBioAI PubMed Sync Pipeline
 Production-grade incremental sync
 Run daily via cron
 """
+import os
 import ftplib, gzip, json, requests
 import xml.etree.ElementTree as ET
 from pathlib import Path
 from datetime import datetime
 
-DATA_DIR = Path("/home/manish/Desktop/machine/data/PubMed/Abstracts")
+DATA_DIR = Path(os.path.join(os.environ.get("OMNIBIOAI_ROOT", str(Path(__file__).resolve().parents[2])), "data", "PubMed", "Abstracts"))
 DOWNLOAD_DIR = Path("/tmp/pubmed_updates")
-STATE_FILE = Path("/home/manish/Desktop/machine/data/PubMed/sync_state.json")
+STATE_FILE = Path(os.path.join(os.environ.get("OMNIBIOAI_ROOT", str(Path(__file__).resolve().parents[2])), "data", "PubMed", "sync_state.json"))
 DOWNLOAD_DIR.mkdir(exist_ok=True)
 
 def load_state():
