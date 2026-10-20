@@ -42,7 +42,7 @@ USAGE
     pip install requests --break-system-packages
 
     python3 prepare_real_data.py \\
-        --out-dir /home/manish/Desktop/machine/omnibioai-test-data/variant_pathogenicity \\
+        --out-dir /home/manish/Desktop/omnibioai-ecosystem/omnibioai-test-data/variant_pathogenicity \\
         --n-per-class 500
 
     # Quick smoke test with a tiny sample first (fast, cheap, validates the

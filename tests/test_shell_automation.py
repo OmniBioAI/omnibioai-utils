@@ -84,7 +84,7 @@ def test_split_general_corpus_in_temp_copy(tmp_path):
     source = ROOT / "pubmed" / "split_general_corpus.sh"
     script = tmp_path / "split.sh"
     text = source.read_text().replace(
-        'SRC="/home/manish/Desktop/machine/omnibioai-data/PubMed/Abstracts/_general_corpus"',
+        'SRC="/home/manish/Desktop/omnibioai-ecosystem/omnibioai-data/PubMed/Abstracts/_general_corpus"',
         f'SRC="{tmp_path / "parent" / "_general_corpus"}"',
     ).replace("CHUNK_SIZE=500000", "CHUNK_SIZE=2").replace("/tmp/gc_filelist.txt", f'"{tmp_path / "filelist.txt"}"').replace("/tmp/gc_chunk_", f'"{tmp_path / "gc_chunk_"}"')
     script.write_text(text)

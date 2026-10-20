@@ -14,7 +14,7 @@ import requests
 
 # Configuration
 INPUT_DIR = Path(
-    "/home/manish/Desktop/machine/data/PubMed/Abstracts/_general_corpus_chunk100"
+    "/home/manish/Desktop/omnibioai-ecosystem/data/PubMed/Abstracts/_general_corpus_chunk100"
 )
 
 MODEL_NAME = "mxbai-embed-large"

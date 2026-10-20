@@ -229,7 +229,7 @@ Safe to prune now that builds are complete.
 ## Steps
 - [ ] Confirm all needed images are tagged and pushed: `docker images | grep omnibioai`
 - [ ] Run: `docker system prune -af --volumes`
-- [ ] Verify reclaimed: `df -h ~/Desktop/machine/`
+- [ ] Verify reclaimed: `df -h ~/Desktop/omnibioai-ecosystem/`
 - [ ] Document final disk state
 
 ## Caution

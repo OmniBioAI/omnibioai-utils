@@ -15,9 +15,9 @@ source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/ecosystem_path.sh"
 #   ./check_unpushed_work.sh [--root PATH] [--json PATH] [--quiet]
 #
 # Intended to be run from cron, e.g.:
-#   0 7 * * * /home/manish/Desktop/machine/omnibioai-utils/check_unpushed_work.sh \
-#       --json /home/manish/Desktop/machine/work/unpushed_work.json \
-#       >> /home/manish/Desktop/machine/work/backups/omnibioai-unpushed-check.log 2>&1
+#   0 7 * * * /home/manish/Desktop/omnibioai-ecosystem/omnibioai-utils/check_unpushed_work.sh \
+#       --json /home/manish/Desktop/omnibioai-ecosystem/work/unpushed_work.json \
+#       >> /home/manish/Desktop/omnibioai-ecosystem/work/backups/omnibioai-unpushed-check.log 2>&1
 
 set -uo pipefail
 

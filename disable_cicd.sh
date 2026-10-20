@@ -1,6 +1,6 @@
 #!/bin/bash
 # Move .github/workflows to .github/workflows_disabled in all repos
-# Run from /home/manish/Desktop/machine/
+# Run from /home/manish/Desktop/omnibioai-ecosystem/
 
 for repo in omnibioai*/; do
     workflows_dir="${repo}.github/workflows"

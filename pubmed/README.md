@@ -4,7 +4,7 @@ Canonical script: `pubmed/reindex_1024_mac.py` in `omnibioai-utils`.
 On this Mac the full path is:
 
 ```text
-/Users/manishkumar/Desktop/machine/omnibioai-utils/pubmed/reindex_1024_mac.py
+/Users/manishkumar/Desktop/omnibioai-ecosystem/omnibioai-utils/pubmed/reindex_1024_mac.py
 ```
 
 The code location and current working directory do not determine where PubMed
@@ -157,7 +157,7 @@ Read-only discovery and remote-completion check for the complete migration:
 
 ```bash
 /Users/manishkumar/.pyenv/versions/3.12.0/bin/python3 \
-  /Users/manishkumar/Desktop/machine/omnibioai-utils/pubmed/reindex_1024_mac.py \
+  /Users/manishkumar/Desktop/omnibioai-ecosystem/omnibioai-utils/pubmed/reindex_1024_mac.py \
   --mode all --include-004 --dry-run
 ```
 
@@ -170,7 +170,7 @@ units, including chunk000, are safely detected by their exact worker and skipped
 
 ```bash
 /Users/manishkumar/.pyenv/versions/3.12.0/bin/python3 \
-  /Users/manishkumar/Desktop/machine/omnibioai-utils/pubmed/reindex_1024_mac.py \
+  /Users/manishkumar/Desktop/omnibioai-ecosystem/omnibioai-utils/pubmed/reindex_1024_mac.py \
   --mode general --include-004
 ```
 
@@ -178,7 +178,7 @@ Run all dynamically discovered domains:
 
 ```bash
 /Users/manishkumar/.pyenv/versions/3.12.0/bin/python3 \
-  /Users/manishkumar/Desktop/machine/omnibioai-utils/pubmed/reindex_1024_mac.py \
+  /Users/manishkumar/Desktop/omnibioai-ecosystem/omnibioai-utils/pubmed/reindex_1024_mac.py \
   --mode domains
 ```
 
@@ -186,7 +186,7 @@ Run the complete general-corpus and domain migration:
 
 ```bash
 /Users/manishkumar/.pyenv/versions/3.12.0/bin/python3 \
-  /Users/manishkumar/Desktop/machine/omnibioai-utils/pubmed/reindex_1024_mac.py \
+  /Users/manishkumar/Desktop/omnibioai-ecosystem/omnibioai-utils/pubmed/reindex_1024_mac.py \
   --mode all --include-004
 ```
 
@@ -197,7 +197,7 @@ One general shard, including chunk000:
 
 ```bash
 /Users/manishkumar/.pyenv/versions/3.12.0/bin/python3 \
-  /Users/manishkumar/Desktop/machine/omnibioai-utils/pubmed/reindex_1024_mac.py \
+  /Users/manishkumar/Desktop/omnibioai-ecosystem/omnibioai-utils/pubmed/reindex_1024_mac.py \
   --mode general --start 0 --end 0
 ```
 
@@ -205,7 +205,7 @@ One domain:
 
 ```bash
 /Users/manishkumar/.pyenv/versions/3.12.0/bin/python3 \
-  /Users/manishkumar/Desktop/machine/omnibioai-utils/pubmed/reindex_1024_mac.py \
+  /Users/manishkumar/Desktop/omnibioai-ecosystem/omnibioai-utils/pubmed/reindex_1024_mac.py \
   --mode domains --domain Cardiovascular
 ```
 
@@ -213,7 +213,7 @@ Explicit data root, overriding the environment:
 
 ```bash
 /Users/manishkumar/.pyenv/versions/3.12.0/bin/python3 \
-  /Users/manishkumar/Desktop/machine/omnibioai-utils/pubmed/reindex_1024_mac.py \
+  /Users/manishkumar/Desktop/omnibioai-ecosystem/omnibioai-utils/pubmed/reindex_1024_mac.py \
   --data-root /Users/manishkumar/omnibioai-data/PubMed \
   --mode general --start 1 --end 1
 ```
@@ -223,7 +223,7 @@ Environment-selected data root:
 ```bash
 OMNIBIOAI_PUBMED_ROOT=/Volumes/PubMedData/PubMed \
   /Users/manishkumar/.pyenv/versions/3.12.0/bin/python3 \
-  /Users/manishkumar/Desktop/machine/omnibioai-utils/pubmed/reindex_1024_mac.py \
+  /Users/manishkumar/Desktop/omnibioai-ecosystem/omnibioai-utils/pubmed/reindex_1024_mac.py \
   --domain Cardiovascular
 ```
 
@@ -245,7 +245,7 @@ Show current local manifest status together with verified remote completion:
 
 ```bash
 /Users/manishkumar/.pyenv/versions/3.12.0/bin/python3 \
-  /Users/manishkumar/Desktop/machine/omnibioai-utils/pubmed/reindex_1024_mac.py \
+  /Users/manishkumar/Desktop/omnibioai-ecosystem/omnibioai-utils/pubmed/reindex_1024_mac.py \
   --mode all --include-004 --status
 ```
 
@@ -279,7 +279,7 @@ Run from any directory:
 
 ```bash
 /Users/manishkumar/.pyenv/versions/3.12.0/bin/python3 -m unittest discover \
-  -s /Users/manishkumar/Desktop/machine/omnibioai-utils/tests/pubmed -v
+  -s /Users/manishkumar/Desktop/omnibioai-ecosystem/omnibioai-utils/tests/pubmed -v
 ```
 
 Or use the repository's pytest installation, overriding its repository-wide
@@ -287,12 +287,12 @@ coverage policy for this focused suite:
 
 ```bash
 /Users/manishkumar/.pyenv/versions/3.12.0/bin/python3 -m pytest -o addopts='' \
-  /Users/manishkumar/Desktop/machine/omnibioai-utils/tests/pubmed
+  /Users/manishkumar/Desktop/omnibioai-ecosystem/omnibioai-utils/tests/pubmed
 ```
 
 Show CLI help without starting indexing:
 
 ```bash
 /Users/manishkumar/.pyenv/versions/3.12.0/bin/python3 \
-  /Users/manishkumar/Desktop/machine/omnibioai-utils/pubmed/reindex_1024_mac.py --help
+  /Users/manishkumar/Desktop/omnibioai-ecosystem/omnibioai-utils/pubmed/reindex_1024_mac.py --help
 ```

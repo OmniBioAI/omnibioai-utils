@@ -31,7 +31,7 @@ source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/ecosystem_path.sh"
 # Every other file in scope is world-readable and copied directly.
 #
 # Intended to be run from cron, e.g.:
-#   0 4 * * * /home/manish/Desktop/machine/omnibioai-utils/backup-system-state.sh >> /home/manish/Desktop/machine/work/backups/omnibioai-system-state-backup.log 2>&1
+#   0 4 * * * /home/manish/Desktop/omnibioai-ecosystem/omnibioai-utils/backup-system-state.sh >> /home/manish/Desktop/omnibioai-ecosystem/work/backups/omnibioai-system-state-backup.log 2>&1
 #
 # Reviewed and active in control-center's cron registry (GET /cron/jobs,
 # id "system-state-backup", paused: false). Verified via 3 successful

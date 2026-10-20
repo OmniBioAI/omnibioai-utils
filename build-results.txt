@@ -2,7 +2,7 @@
 Building all new images...
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-▶ Building ghcr.io/man4ish/omnibioai-tes:new from /home/manish/Desktop/machine/omnibioai-tes/Dockerfile.new
+▶ Building ghcr.io/man4ish/omnibioai-tes:new from /home/manish/Desktop/omnibioai-ecosystem/omnibioai-tes/Dockerfile.new
 #18 exporting layers 0.1s done
 #18 writing image sha256:a9f84760db8ac8403f00d2ac1d228966b6b8453f26fa52a777720ca2108e40c1
 #18 writing image sha256:a9f84760db8ac8403f00d2ac1d228966b6b8453f26fa52a777720ca2108e40c1 done
@@ -10,7 +10,7 @@ Building all new images...
 #18 DONE 0.1s
 ✅ ghcr.io/man4ish/omnibioai-tes:new built successfully
 
-▶ Building ghcr.io/man4ish/omnibioai-model-registry:new from /home/manish/Desktop/machine/omnibioai-model-registry/Dockerfile.new
+▶ Building ghcr.io/man4ish/omnibioai-model-registry:new from /home/manish/Desktop/omnibioai-ecosystem/omnibioai-model-registry/Dockerfile.new
 #16 exporting to image
 #16 exporting layers 0.1s done
 #16 writing image sha256:f09b3aa1a3bf2544775fa63d30f72568c9767fc48d4ac95992a68c5a2f90d95d done
@@ -18,7 +18,7 @@ Building all new images...
 #16 DONE 0.1s
 ✅ ghcr.io/man4ish/omnibioai-model-registry:new built successfully
 
-▶ Building ghcr.io/man4ish/omnibioai-toolserver:new from /home/manish/Desktop/machine/omnibioai-toolserver/Dockerfile.new
+▶ Building ghcr.io/man4ish/omnibioai-toolserver:new from /home/manish/Desktop/omnibioai-ecosystem/omnibioai-toolserver/Dockerfile.new
 #12 exporting to image
 #12 exporting layers 0.1s done
 #12 writing image sha256:c4cd91ce4019a06f898bfaa9f46c2c392b7ecf0ba4909d75fc64bfbc903ef13f done
@@ -26,7 +26,7 @@ Building all new images...
 #12 DONE 0.1s
 ✅ ghcr.io/man4ish/omnibioai-toolserver:new built successfully
 
-▶ Building ghcr.io/man4ish/omnibioai-lims:new from /home/manish/Desktop/machine/omnibioai-lims/Dockerfile.new
+▶ Building ghcr.io/man4ish/omnibioai-lims:new from /home/manish/Desktop/omnibioai-ecosystem/omnibioai-lims/Dockerfile.new
 #10 exporting layers
 #10 exporting layers 1.5s done
 #10 writing image sha256:136fd266d0e386945edd018ec42287065679ba95da9a40c81c39efc3bca41b24 done
@@ -34,7 +34,7 @@ Building all new images...
 #10 DONE 1.5s
 ✅ ghcr.io/man4ish/omnibioai-lims:new built successfully
 
-▶ Building ghcr.io/man4ish/omnibioai-rag:new from /home/manish/Desktop/machine/omnibioai-rag/Dockerfile.new
+▶ Building ghcr.io/man4ish/omnibioai-rag:new from /home/manish/Desktop/omnibioai-ecosystem/omnibioai-rag/Dockerfile.new
 #16 exporting to image
 #16 exporting layers 0.1s done
 #16 writing image sha256:2cf143c414b75175ac39ee3155735bd5ed17879e9faeb89e3e0d6f50bab4d3c1 done
@@ -42,7 +42,7 @@ Building all new images...
 #16 DONE 0.1s
 ✅ ghcr.io/man4ish/omnibioai-rag:new built successfully
 
-▶ Building ghcr.io/man4ish/omnibioai-control-center:new from /home/manish/Desktop/machine/omnibioai-control-center/Dockerfile.new
+▶ Building ghcr.io/man4ish/omnibioai-control-center:new from /home/manish/Desktop/omnibioai-ecosystem/omnibioai-control-center/Dockerfile.new
 #16 exporting to image
 #16 exporting layers 0.1s done
 #16 writing image sha256:6adecb91870a6ecadfc6d31fddb0b8b5e01e8249afe41abe5b264793b6674e6e done
@@ -50,7 +50,7 @@ Building all new images...
 #16 DONE 0.1s
 ✅ ghcr.io/man4ish/omnibioai-control-center:new built successfully
 
-▶ Building ghcr.io/man4ish/omnibioai-tool-runtime:new from /home/manish/Desktop/machine/omnibioai-tool-runtime/Dockerfile.new
+▶ Building ghcr.io/man4ish/omnibioai-tool-runtime:new from /home/manish/Desktop/omnibioai-ecosystem/omnibioai-tool-runtime/Dockerfile.new
 #13 naming to ghcr.io/man4ish/omnibioai-tool-runtime:new done
 #13 DONE 2.1s
 
