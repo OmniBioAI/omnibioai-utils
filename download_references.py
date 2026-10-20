@@ -4,10 +4,10 @@ Comprehensive reference genome and database downloader for OmniBioAI.
 
 Usage:
     python download_references.py --help
-    python download_references.py --base-dir $OMNIBIOAI_ROOT/omnibioai-data/reference \
+    python download_references.py --base-dir $OMNIBIOAI_ROOT/data/reference \
         --species human mouse --assemblies GRCh38 GRCm39 \
         --include-variants --include-databases --threads 8
-    python download_references.py --status --base-dir $OMNIBIOAI_ROOT/omnibioai-data/reference
+    python download_references.py --status --base-dir $OMNIBIOAI_ROOT/data/reference
     python download_references.py --dry-run --species human --assemblies GRCh38
 """
 
@@ -643,11 +643,11 @@ def parse_args() -> argparse.Namespace:
 
     parser.add_argument(
         "--base-dir",
-        default=os.path.join(os.environ.get("OMNIBIOAI_ROOT", str(Path(__file__).resolve().parents[1])), "omnibioai-data", "reference"),
+        default=os.path.join(os.environ.get("OMNIBIOAI_ROOT", str(Path(__file__).resolve().parents[1])), "data", "reference"),
         help=(
             "Base reference data directory "
-            "(default: $OMNIBIOAI_ROOT/omnibioai-data/reference). "
-            "Defaults to $OMNIBIOAI_ROOT/omnibioai-data/reference; "
+            "(default: $OMNIBIOAI_ROOT/data/reference). "
+            "Defaults to $OMNIBIOAI_ROOT/data/reference; "
             "OMNIBIOAI_ROOT overrides the repository-relative ecosystem root."
         ),
     )

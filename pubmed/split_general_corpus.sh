@@ -7,7 +7,7 @@ source "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/ecosystem_path.sh"
 
 set -euo pipefail
 
-SRC="$OMNIBIOAI_ROOT/omnibioai-data/PubMed/Abstracts/_general_corpus"
+SRC="$OMNIBIOAI_ROOT/data/PubMed/Abstracts/_general_corpus"
 PARENT="$(dirname "$SRC")"
 CHUNK_SIZE=500000
 CHUNK_PREFIX="_general_corpus_chunk"

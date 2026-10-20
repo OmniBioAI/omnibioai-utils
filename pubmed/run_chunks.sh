@@ -6,7 +6,7 @@ source "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/ecosystem_path.sh"
 
 set -euo pipefail
 
-PARENT="$OMNIBIOAI_ROOT/omnibioai-data/PubMed/Abstracts"
+PARENT="$OMNIBIOAI_ROOT/data/PubMed/Abstracts"
 CHUNK_PREFIX="_general_corpus_chunk"
 MAX_CONCURRENT=1   # tune based on observed RSS per chunk; start conservative
 EMBED_MODEL="pubmedbert"
