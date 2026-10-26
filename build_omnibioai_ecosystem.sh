@@ -24,6 +24,7 @@ RESET='\033[0m'
 # Resolve this script's directory so we can find sibling scripts regardless
 # of where the caller invokes it from.
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+DISCORD_EVENT_CLIENT="${ROOT}/omnibioai-control-center/scripts/publish_discord_event.py"
 
 # Discord alert webhook -- same var + same source file (omnibioai-studio/.env)
 # that omnibioai-studio's docker-compose stack already uses for GPU/known-issue
@@ -37,19 +38,40 @@ step() {
     echo -e "${BOLD}==> $1${RESET}"
 }
 
-# Fire-and-forget Discord embed, mirroring control_center's notify(): title,
-# description, error color, timestamp, footer. No-ops silently if the webhook
-# isn't configured, and never fails the build if the alert itself fails.
+# Publish a sanitized Discord alert. Failure is returned to the caller for a
+# generic warning; it never changes the build's original failure exit status.
 discord_alert() {
-    local message="$1" esc
-    [ -n "${DISCORD_ALERT_WEBHOOK_URL:-}" ] || return 0
-    command -v curl >/dev/null 2>&1 || return 0
+    local message="$1" esc commit_id event_hash event_id approval_arg=()
+    commit_id="$(git -C "$ROOT/omnibioai-control-center" rev-parse --short=12 HEAD 2>/dev/null || echo unknown)"
+    event_hash="$(printf '%s' "$message" | sha256sum | cut -c1-16)"
+    event_id="ecosystem-build:${commit_id}:${event_hash}"
+    if [ "${DISCORD_INFRA_EVENTS_PREAPPROVED:-false}" = "true" ]; then
+        approval_arg=(--approved)
+    fi
+    if [ -x "$DISCORD_EVENT_CLIENT" ] && [ -n "${DISCORD_EVENT_ROUTER_URL:-}" ] && [ -n "${DISCORD_EVENT_SOURCE_SECRET:-}" ]; then
+        if "$DISCORD_EVENT_CLIENT" \
+            --event-id "$event_id" \
+            --event-type infrastructure.alert \
+            --source infrastructure \
+            --title "OmniBioAI ecosystem build failed" \
+            --message "A platform build failed. Authorized operators should inspect the internal build logs." \
+            --correlation-id "$event_id" \
+            --color error "${approval_arg[@]}" >/dev/null 2>&1; then
+            return 0
+        fi
+        # A timeout may occur after the router durably accepted the event;
+        # do not fall back to the legacy webhook and risk duplicate posting.
+        return 1
+    fi
+    [ -n "${DISCORD_ALERT_WEBHOOK_URL:-}" ] || return 2
+    command -v curl >/dev/null 2>&1 || return 2
+    message="A platform build failed. Authorized operators should inspect the internal build logs."
     esc="${message//\\/\\\\}"
     esc="${esc//\"/\\\"}"
     esc="${esc//$'\n'/\\n}"
-    curl -sS -m 10 -H "Content-Type: application/json" \
+    curl -fsS -m 10 -H "Content-Type: application/json" \
         -d "{\"username\":\"OmniBioAI\",\"embeds\":[{\"title\":\"omnibioai-ecosystem-build failed\",\"description\":\"${esc}\",\"color\":14893898,\"timestamp\":\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\",\"footer\":{\"text\":\"$(hostname) · ${ROOT}\"}}]}" \
-        "$DISCORD_ALERT_WEBHOOK_URL" >/dev/null 2>&1 || true
+        "$DISCORD_ALERT_WEBHOOK_URL" >/dev/null 2>&1
 }
 
 # Pass "docker" as $2 when the failure happened around a docker compose call
@@ -61,7 +83,9 @@ fail() {
         echo -e "${YELLOW}${BOLD}--- docker compose ps (current state) ---${RESET}"
         (cd "$STUDIO_DIR" && docker compose ps) 2>&1 || true
     fi
-    discord_alert "$1"
+    if ! discord_alert "$1"; then
+        echo -e "${YELLOW}Discord alert was not delivered or is not configured; inspect the notification configuration.${RESET}" >&2
+    fi
     exit 1
 }
 
