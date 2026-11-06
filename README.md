@@ -25,7 +25,7 @@ Developer utilities, automation scripts, and ecosystem management tools for the 
 | `build-all-new.sh` | Builds the listed service images locally using each repo's `Dockerfile.new`; it does not push them |
 | `build_all_tools.sh` | Builds all bioinformatics tool images and pushes to ECR and GHCR |
 | `build_cython.sh` | Compiles all high-priority Cython files across repos before Docker builds |
-| `build_omnibioai_ecosystem.sh` | Full ecosystem build: checks every repo is clean and on `main` (via `ecosystem_status.sh`), runs the control-center coverage host and report, then builds and restarts `omnibioai-studio` with `docker compose`; posts a Discord alert on failure when `DISCORD_ALERT_WEBHOOK_URL` is set |
+| `build_omnibioai_ecosystem.sh` | Full ecosystem build: checks every repo is clean and on `main` (via `ecosystem_status.sh`), runs the control-center coverage host and report, then builds and restarts `omnibioai-studio` with `docker compose`; queues a Discord alert for approval in the Control Center router on failure when `DISCORD_EVENT_ROUTER_URL` and `DISCORD_EVENT_SOURCE_SECRET` are set |
 
 ### Ecosystem Management
 
