@@ -26,22 +26,17 @@ RESET='\033[0m'
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DISCORD_EVENT_CLIENT="${ROOT}/omnibioai-control-center/scripts/publish_discord_event.py"
 
-# Discord alert webhook -- same var + same source file (omnibioai-studio/.env)
-# that omnibioai-studio's docker-compose stack already uses for GPU/known-issue
-# alerts. An empty/missing value disables alerting gracefully, same as there.
-if [ -z "${DISCORD_ALERT_WEBHOOK_URL:-}" ] && [ -f "$ROOT/omnibioai-studio/.env" ]; then
-    DISCORD_ALERT_WEBHOOK_URL="$(grep -m1 '^DISCORD_ALERT_WEBHOOK_URL=' "$ROOT/omnibioai-studio/.env" | cut -d= -f2-)"
-fi
-
 step() {
     echo ""
     echo -e "${BOLD}==> $1${RESET}"
 }
 
-# Publish a sanitized Discord alert. Failure is returned to the caller for a
-# generic warning; it never changes the build's original failure exit status.
+# Publish a sanitized Discord alert through the central router only. Failure
+# is returned to the caller for a generic warning; it never changes the
+# build's original failure exit status. Returns 2 when the router is not
+# configured.
 discord_alert() {
-    local message="$1" esc commit_id event_hash event_id approval_arg=()
+    local message="$1" commit_id event_hash event_id approval_arg=()
     commit_id="$(git -C "$ROOT/omnibioai-control-center" rev-parse --short=12 HEAD 2>/dev/null || echo unknown)"
     event_hash="$(printf '%s' "$message" | sha256sum | cut -c1-16)"
     event_id="ecosystem-build:${commit_id}:${event_hash}"
@@ -60,18 +55,10 @@ discord_alert() {
             return 0
         fi
         # A timeout may occur after the router durably accepted the event;
-        # do not fall back to the legacy webhook and risk duplicate posting.
+        # do not retry and risk duplicate posting.
         return 1
     fi
-    [ -n "${DISCORD_ALERT_WEBHOOK_URL:-}" ] || return 2
-    command -v curl >/dev/null 2>&1 || return 2
-    message="A platform build failed. Authorized operators should inspect the internal build logs."
-    esc="${message//\\/\\\\}"
-    esc="${esc//\"/\\\"}"
-    esc="${esc//$'\n'/\\n}"
-    curl -fsS -m 10 -H "Content-Type: application/json" \
-        -d "{\"username\":\"OmniBioAI\",\"embeds\":[{\"title\":\"omnibioai-ecosystem-build failed\",\"description\":\"${esc}\",\"color\":14893898,\"timestamp\":\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\",\"footer\":{\"text\":\"$(hostname) · ${ROOT}\"}}]}" \
-        "$DISCORD_ALERT_WEBHOOK_URL" >/dev/null 2>&1
+    return 2
 }
 
 # Pass "docker" as $2 when the failure happened around a docker compose call
