@@ -9,6 +9,11 @@ Usage:
         --include-variants --include-databases --threads 8
     python download_references.py --status --base-dir $OMNIBIOAI_ROOT/data/reference
     python download_references.py --dry-run --species human --assemblies GRCh38
+
+LEGACY: this writes the pre-contract layout (organisms/<common name>/, indexes/<tool>/<name>,
+dataset_registry.json), and some of its URLs no longer exist. The reference tree now follows
+contract v1 (ROOT/README.md and ROOT/_schema/ under /mnt/nas/omnibioai/reference-genomes).
+Every run except --help therefore needs --i-know-this-writes-legacy-layout.
 """
 
 import argparse
@@ -25,6 +30,15 @@ from pathlib import Path
 # ---------------------------------------------------------------------------
 
 REGISTRY_FILENAME = "dataset_registry.json"
+
+LEGACY_FLAG = "--i-know-this-writes-legacy-layout"
+LEGACY_MESSAGE = (
+    "download_references.py writes the legacy reference layout (organisms/<common name>/,\n"
+    "indexes/<tool>/<name>, dataset_registry.json), not the contract v1 layout now used under\n"
+    "/mnt/nas/omnibioai/reference-genomes: see README.md and _schema/ there, and\n"
+    "scripts/reference/validate_reference.py in omnibioai-ecosystem.\n"
+    f"Refusing to run. Pass {LEGACY_FLAG} to run it anyway."
+)
 
 
 def load_registry(registry_path: Path) -> dict:
@@ -704,6 +718,12 @@ def parse_args() -> argparse.Namespace:
         help="Print a status report of what files exist and exit",
     )
     parser.add_argument(
+        LEGACY_FLAG,
+        dest="legacy_layout_ok",
+        action="store_true",
+        help="Required: acknowledge that this writes the legacy (pre contract v1) layout",
+    )
+    parser.add_argument(
         "--scaffold",
         action="store_true",
         help="Create the full directory skeleton without downloading anything",
@@ -743,6 +763,9 @@ def resolve_assemblies(species: list[str] | None, assemblies: list[str] | None) 
 
 def main() -> None:
     args = parse_args()
+    if not args.legacy_layout_ok:
+        print(LEGACY_MESSAGE, file=sys.stderr)
+        sys.exit(2)
     base = Path(args.base_dir).expanduser().resolve()
 
     dl = ReferenceDownloader(base_dir=base, threads=args.threads, dry_run=args.dry_run)
