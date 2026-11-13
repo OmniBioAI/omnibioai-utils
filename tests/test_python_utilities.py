@@ -260,7 +260,7 @@ def test_reference_cli_parser_and_main_dry_run(monkeypatch, capsys):
     monkeypatch.setattr(sys, "argv", ["download_references.py", "--species", "human", "--dry-run"])
     args = mod.parse_args()
     assert args.species == ["human"] and args.dry_run
-    monkeypatch.setattr(sys, "argv", ["download_references.py", "--base-dir", "/tmp/refs", "--status"])
+    monkeypatch.setattr(sys, "argv", ["download_references.py", "--base-dir", "/tmp/refs", "--status", "--i-know-this-writes-legacy-layout"])
     monkeypatch.setattr(mod.ReferenceDownloader, "print_status", lambda self: print("status"))
     mod.main()
     assert "status" in capsys.readouterr().out
@@ -270,7 +270,7 @@ def test_reference_main_dry_run_dispatches_optional_sections(monkeypatch, tmp_pa
     """Dispatch main() to the genome, annotation, variant, and database
     download methods requested via --include-* flags, in order."""
     mod = load("download_references")
-    monkeypatch.setattr(sys, "argv", ["download_references.py", "--base-dir", str(tmp_path), "--assemblies", "GRCh38", "--include-annotation", "--include-variants", "--include-databases", "--dry-run"])
+    monkeypatch.setattr(sys, "argv", ["download_references.py", "--base-dir", str(tmp_path), "--assemblies", "GRCh38", "--include-annotation", "--include-variants", "--include-databases", "--dry-run", "--i-know-this-writes-legacy-layout"])
     calls = []
     for name in ["download_human_GRCh38", "download_annotation_human", "download_annotation_mouse", "download_variants_human", "download_variants_mouse", "download_databases"]:
         monkeypatch.setattr(mod.ReferenceDownloader, name, lambda self, name=name: calls.append(name))
@@ -836,12 +836,13 @@ def test_setup_main_and_reference_cli_control_paths(monkeypatch, tmp_path, capsy
     assert "DRY RUN complete" in capsys.readouterr().out
 
     refs = load("download_references")
-    monkeypatch.setattr(sys, "argv", ["download_references.py", "--base-dir", str(tmp_path), "--scaffold"])
+    monkeypatch.setattr(sys, "argv", ["download_references.py", "--base-dir", str(tmp_path), "--scaffold", "--i-know-this-writes-legacy-layout"])
     monkeypatch.setattr(refs.ReferenceDownloader, "scaffold_directories", lambda self: None)
     monkeypatch.setattr(refs.ReferenceDownloader, "flush_registry", lambda self: None)
     refs.main()
-    monkeypatch.setattr(sys, "argv", ["download_references.py", "--base-dir", str(tmp_path)])
-    with pytest.raises(SystemExit): refs.main()
+    monkeypatch.setattr(sys, "argv", ["download_references.py", "--base-dir", str(tmp_path), "--i-know-this-writes-legacy-layout"])
+    with pytest.raises(SystemExit) as nothing: refs.main()
+    assert nothing.value.code == 0
 
 
 def test_prepare_download_parse_reservoir_and_empty_main(monkeypatch, tmp_path):
@@ -926,7 +927,24 @@ def test_small_remaining_branches(monkeypatch):
     with pytest.raises(SystemExit): agent.load_corpus("/missing/tools.yaml", None, None, None, [], False)
     assert load("download_references")._now()
     refs = load("download_references")
-    monkeypatch.setattr(sys, "argv", ["download_references.py", "--base-dir", "/tmp/refs", "--assemblies", "GRCh38", "--only", "genome", "--dry-run"])
+    monkeypatch.setattr(sys, "argv", ["download_references.py", "--base-dir", "/tmp/refs", "--assemblies", "GRCh38", "--only", "genome", "--dry-run", "--i-know-this-writes-legacy-layout"])
     monkeypatch.setattr(refs, "ASSEMBLY_MAP", {"GRCh38": ("human", "missing_downloader")})
     monkeypatch.setattr(refs.ReferenceDownloader, "scaffold_directories", lambda self: None)
     refs.main()
+
+
+def test_reference_main_refuses_without_legacy_flag(monkeypatch, tmp_path, capsys):
+    """Without --i-know-this-writes-legacy-layout, main() exits 2 before
+    touching the base dir, and points at contract v1."""
+    refs = load("download_references")
+    called = []
+    monkeypatch.setattr(refs.ReferenceDownloader, "__init__", lambda self, *a, **k: called.append("init"))
+    for extra in (["--status"], ["--scaffold"], ["--species", "human", "--dry-run"], []):
+        monkeypatch.setattr(sys, "argv", ["download_references.py", "--base-dir", str(tmp_path / "refs"), *extra])
+        with pytest.raises(SystemExit) as exc:
+            refs.main()
+        assert exc.value.code == 2
+    assert called == []
+    assert not (tmp_path / "refs").exists()
+    err = capsys.readouterr().err
+    assert "contract v1" in err and "--i-know-this-writes-legacy-layout" in err

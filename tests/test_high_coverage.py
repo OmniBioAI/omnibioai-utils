@@ -414,11 +414,12 @@ def test_download_cli_branches(monkeypatch,tmp_path,capsys):
     """Report an empty registry, require at least one selection flag,
     reject an unknown assembly at argument-parsing time, and report a
     missing downloader for an unmapped assembly."""
-    d=load("download_references"); dl=d.ReferenceDownloader(tmp_path); dl.registry={}; dl.print_status(); assert "Registry: empty" in capsys.readouterr().out; assert d._now(); monkeypatch.setattr(sys,"argv",["x","--base-dir",str(tmp_path),"--scaffold","--dry-run"]); d.main(); monkeypatch.setattr(sys,"argv",["x","--base-dir",str(tmp_path)]);
-    with pytest.raises(SystemExit): d.main()
+    d=load("download_references"); dl=d.ReferenceDownloader(tmp_path); dl.registry={}; dl.print_status(); assert "Registry: empty" in capsys.readouterr().out; assert d._now(); monkeypatch.setattr(sys,"argv",["x","--base-dir",str(tmp_path),"--scaffold","--dry-run","--i-know-this-writes-legacy-layout"]); d.main(); monkeypatch.setattr(sys,"argv",["x","--base-dir",str(tmp_path),"--i-know-this-writes-legacy-layout"]);
+    with pytest.raises(SystemExit) as nothing: d.main()
+    assert nothing.value.code == 0
     monkeypatch.setattr(sys,"argv",["x","--base-dir",str(tmp_path),"--assemblies","UNKNOWN"]); # parser rejects this before business logic; validate separately
     with pytest.raises(SystemExit): d.parse_args()
-    monkeypatch.setattr(d,"ASSEMBLY_MAP",{"X":("x","missing")}); monkeypatch.setattr(sys,"argv",["x","--base-dir",str(tmp_path),"--assemblies","X"]); d.main(); assert "No downloader" in capsys.readouterr().out
+    monkeypatch.setattr(d,"ASSEMBLY_MAP",{"X":("x","missing")}); monkeypatch.setattr(sys,"argv",["x","--base-dir",str(tmp_path),"--assemblies","X","--i-know-this-writes-legacy-layout"]); d.main(); assert "No downloader" in capsys.readouterr().out
 
 
 def test_public_radio_and_submit_failures(monkeypatch):

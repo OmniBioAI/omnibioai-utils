@@ -133,7 +133,8 @@ def test_download_only_flag_and_unknown_assembly(monkeypatch, tmp_path, capsys):
     monkeypatch.setattr(d, "ASSEMBLY_MAP", {})
     monkeypatch.setattr(
         sys, "argv",
-        ["x", "--base-dir", str(tmp_path), "--species", "human", "--only", "genome"],
+        ["x", "--base-dir", str(tmp_path), "--species", "human", "--only", "genome",
+         "--i-know-this-writes-legacy-layout"],
     )
     d.main()
     out = capsys.readouterr().out
