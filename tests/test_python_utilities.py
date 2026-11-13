@@ -927,7 +927,7 @@ def test_small_remaining_branches(monkeypatch):
     with pytest.raises(SystemExit): agent.load_corpus("/missing/tools.yaml", None, None, None, [], False)
     assert load("download_references")._now()
     refs = load("download_references")
-    monkeypatch.setattr(sys, "argv", ["download_references.py", "--base-dir", "/tmp/refs", "--assemblies", "GRCh38", "--only", "genome", "--dry-run"])
+    monkeypatch.setattr(sys, "argv", ["download_references.py", "--base-dir", "/tmp/refs", "--assemblies", "GRCh38", "--only", "genome", "--dry-run", "--i-know-this-writes-legacy-layout"])
     monkeypatch.setattr(refs, "ASSEMBLY_MAP", {"GRCh38": ("human", "missing_downloader")})
     monkeypatch.setattr(refs.ReferenceDownloader, "scaffold_directories", lambda self: None)
     refs.main()
